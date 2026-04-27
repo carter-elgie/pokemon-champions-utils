@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\PokemonChampions.Core\PokemonChampions.Core.csproj" />
+    <ProjectReference Include="..\PokemonChampions.Data\PokemonChampions.Data.csproj" />
+    <ProjectReference Include="..\PokemonChampions.Shared\PokemonChampions.Shared.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

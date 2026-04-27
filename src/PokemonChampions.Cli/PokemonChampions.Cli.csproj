@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\PokemonChampions.Core\PokemonChampions.Core.csproj" />
+    <ProjectReference Include="..\PokemonChampions.Data\PokemonChampions.Data.csproj" />
+    <ProjectReference Include="..\PokemonChampions.Import\PokemonChampions.Import.csproj" />
+    <ProjectReference Include="..\PokemonChampions.Shared\PokemonChampions.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.*" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="8.0.*" />
+    <PackageReference Include="Spectre.Console" Version="0.49.*" />
+    <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
