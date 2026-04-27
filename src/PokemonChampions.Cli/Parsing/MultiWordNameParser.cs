@@ -37,6 +37,8 @@ public class MultiWordNameParser(
     /// Tries to match as many tokens as possible (greedily) to any entity type.
     /// Returns all entity matches found for the best token count.
     /// The caller should show a disambiguation prompt when multiple types match.
+    /// Supports an explicit type hint as the last token, e.g. "(item)" or "(move)",
+    /// which filters results to that type and bypasses disambiguation.
     /// </summary>
     public async Task<IReadOnlyList<LookupResult>> ResolveAsync(
         string[] tokens,
@@ -45,15 +47,33 @@ public class MultiWordNameParser(
     {
         if (startIndex >= tokens.Length) return [];
 
-        // Try from most tokens down to 1 (greedy longest-match)
-        for (int len = tokens.Length - startIndex; len >= 1; len--)
+        var slice = tokens[startIndex..];
+
+        // If the last token is an explicit type hint like "(item)", resolve without it
+        // and return only the matching type — no disambiguation menu.
+        if (TryExtractTypeHint(slice, out var typeHint, out var nameTokens))
         {
-            var span = tokens[startIndex..(startIndex + len)];
+            for (int len = nameTokens.Length; len >= 1; len--)
+            {
+                var span = nameTokens[..len];
+                var joined = string.Join(" ", span);
+                var all = await FindAllAsync(joined, ct);
+                if (all.Count == 0) all = await TryPrefixRewriteAsync(span, ct);
+                var typed = all.Where(m => m.Type == typeHint).ToList();
+                if (typed.Count > 0)
+                    return typed.Select(m => new LookupResult(m.Type, m.Entity, len + 1)).ToList();
+            }
+            // Hint matched nothing — fall through to normal resolution without the hint
+        }
+
+        // Normal resolution (greedy longest-match across all entity types)
+        for (int len = slice.Length; len >= 1; len--)
+        {
+            var span = slice[..len];
             var joined = string.Join(" ", span);
 
             var matches = await FindAllAsync(joined, ct);
 
-            // Also try prefix rewrite (e.g. "mega charizard y" → "charizardmegay" etc.)
             if (matches.Count == 0)
                 matches = await TryPrefixRewriteAsync(span, ct);
 
@@ -62,6 +82,27 @@ public class MultiWordNameParser(
         }
 
         return [];
+    }
+
+    private static bool TryExtractTypeHint(string[] tokens, out EntityType typeHint, out string[] nameTokens)
+    {
+        typeHint = default;
+        nameTokens = tokens;
+        if (tokens.Length < 2) return false;
+
+        typeHint = tokens[^1].ToLowerInvariant() switch
+        {
+            "(pokemon)" => EntityType.Pokemon,
+            "(move)"    => EntityType.Move,
+            "(item)"    => EntityType.Item,
+            "(ability)" => EntityType.Ability,
+            _ => (EntityType)(-1)
+        };
+
+        if ((int)typeHint == -1) return false;
+
+        nameTokens = tokens[..^1];
+        return true;
     }
 
     /// <summary>

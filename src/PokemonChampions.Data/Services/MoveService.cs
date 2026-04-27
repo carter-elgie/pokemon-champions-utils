@@ -37,6 +37,7 @@ public class MoveService(AppDbContext db, ISettingsService settings, FormatRegis
         var format = await GetCurrentFormatAsync(ct);
         var candidates = await db.Moves
             .Where(m => m.NormalizedId.Contains(normalized))
+            .OrderBy(m => m.NormalizedId)
             .Take(maxResults * 3)
             .ToListAsync(ct);
 

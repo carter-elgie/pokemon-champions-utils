@@ -38,6 +38,7 @@ public class PokemonService(AppDbContext db, ISettingsService settings, FormatRe
         var format = await GetCurrentFormatAsync(ct);
         var candidates = await db.Pokemon
             .Where(p => p.NormalizedId.Contains(normalized))
+            .OrderBy(p => p.NormalizedId)
             .Take(maxResults * 3)
             .ToListAsync(ct);
 

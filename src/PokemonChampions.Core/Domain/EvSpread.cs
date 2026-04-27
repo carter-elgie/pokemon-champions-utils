@@ -1,4 +1,5 @@
 using PokemonChampions.Shared.Constants;
+using PokemonChampions.Shared.Enums;
 
 namespace PokemonChampions.Core.Domain;
 
@@ -12,6 +13,17 @@ public record EvSpread(int Hp, int Atk, int Def, int SpA, int SpD, int Spe)
     public static readonly EvSpread Zero = new(0, 0, 0, 0, 0, 0);
 
     public int Total => Hp + Atk + Def + SpA + SpD + Spe;
+
+    public int Get(StatName stat) => stat switch
+    {
+        StatName.Hp  => Hp,
+        StatName.Atk => Atk,
+        StatName.Def => Def,
+        StatName.SpA => SpA,
+        StatName.SpD => SpD,
+        StatName.Spe => Spe,
+        _ => throw new ArgumentOutOfRangeException(nameof(stat))
+    };
 
     /// <summary>Returns true if this spread is within Pokemon Champions' stat point caps.</summary>
     public bool IsLegal() =>

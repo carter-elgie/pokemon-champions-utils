@@ -36,6 +36,7 @@ public class ItemService(AppDbContext db, ISettingsService settings, FormatRegis
         var format = await GetCurrentFormatAsync(ct);
         var candidates = await db.Items
             .Where(i => i.NormalizedId.Contains(normalized))
+            .OrderBy(i => i.NormalizedId)
             .Take(maxResults * 3)
             .ToListAsync(ct);
 

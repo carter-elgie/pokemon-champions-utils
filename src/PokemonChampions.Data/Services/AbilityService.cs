@@ -36,6 +36,7 @@ public class AbilityService(AppDbContext db, ISettingsService settings, FormatRe
         var format = await GetCurrentFormatAsync(ct);
         var candidates = await db.Abilities
             .Where(a => a.NormalizedId.Contains(normalized))
+            .OrderBy(a => a.NormalizedId)
             .Take(maxResults * 3)
             .ToListAsync(ct);
 

@@ -11,7 +11,7 @@ public static class PokemonRenderer
     private static readonly StatName[] StatOrder =
         [StatName.Hp, StatName.Atk, StatName.Def, StatName.SpA, StatName.SpD, StatName.Spe];
 
-    public static void Render(Pokemon pokemon)
+    public static void Render(Pokemon pokemon, TeamMember? member = null)
     {
         // ── Header ──────────────────────────────────────────────────────────
         var typeStr = TypeColors.Badge(pokemon.Type1);
@@ -25,7 +25,7 @@ public static class PokemonRenderer
 
         AnsiConsole.WriteLine();
 
-        // ── Stat table ───────────────────────────────────────────────────────
+        // ── Base stat table ──────────────────────────────────────────────────
         var table = new Table()
             .Border(TableBorder.Simple)
             .AddColumn(new TableColumn("[grey]Stat[/]"))
@@ -59,7 +59,11 @@ public static class PokemonRenderer
         if (pokemon.IsMega && pokemon.BaseFormShowdownId is not null)
             AnsiConsole.MarkupLine($"[grey]Mega evolution of:[/] {Markup.Escape(pokemon.BaseFormShowdownId)}");
 
-        AnsiConsole.WriteLine();
+        // ── Team build ───────────────────────────────────────────────────────
+        if (member is not null)
+            RenderBuild(pokemon, member);
+        else
+            AnsiConsole.WriteLine();
     }
 
     public static void RenderStatRange(Pokemon pokemon, StatName stat)
@@ -70,6 +74,64 @@ public static class PokemonRenderer
             $"  Base [grey]→[/] [bold]{range.Base}[/]   " +
             $"Min [grey]→[/] [bold]{range.Min}[/]   " +
             $"Max [grey]→[/] [bold]{range.Max}[/]");
+        AnsiConsole.WriteLine();
+    }
+
+    private static void RenderBuild(Pokemon pokemon, TeamMember member)
+    {
+        AnsiConsole.WriteLine();
+        AnsiConsole.MarkupLine("[grey]── Your build ─────────────────────────────────────[/]");
+
+        // Nature + Item + Ability header line
+        var nature = member.Nature is not null ? Nature.TryGet(member.Nature) : null;
+        var natureName = member.Nature ?? "[grey]No nature[/]";
+        var itemPart = member.Item is not null ? $"  [grey]@[/] {Markup.Escape(member.Item)}" : "";
+        AnsiConsole.MarkupLine($"  {Markup.Escape(natureName)}{itemPart}");
+
+        if (member.Ability is not null)
+            AnsiConsole.MarkupLine($"  [grey]Ability:[/] {Markup.Escape(member.Ability)}");
+
+        AnsiConsole.WriteLine();
+
+        // Computed stat table
+        var effectiveNature = nature ?? new Nature("?", null, null);
+        var computed = StatCalculator.Compute(pokemon.BaseStats, member.StatPoints, member.Ivs, effectiveNature);
+
+        var buildTable = new Table()
+            .Border(TableBorder.Simple)
+            .HideHeaders()
+            .AddColumn(new TableColumn("").LeftAligned())
+            .AddColumn(new TableColumn("").RightAligned())  // Pts
+            .AddColumn(new TableColumn("").RightAligned()); // Final
+
+        buildTable.AddRow("[grey]Stat[/]", "[grey]Pts[/]", "[grey]Final[/]");
+
+        foreach (var stat in StatOrder)
+        {
+            var pts = member.StatPoints.Get(stat);
+            var final = computed.Get(stat);
+            bool isBoosted  = stat != StatName.Hp && effectiveNature.BoostedStat  == stat;
+            bool isHindered = stat != StatName.Hp && effectiveNature.HinderedStat == stat;
+
+            string finalMarkup = isBoosted  ? $"[green]{final}[/]"
+                               : isHindered ? $"[red]{final}[/]"
+                               : final.ToString();
+
+            string ptsStr = pts <= 0 ? "[grey]—[/]"
+                          : isBoosted  ? $"[green]{pts}+[/]"
+                          : isHindered ? $"[red]{pts}-[/]"
+                          : pts.ToString();
+
+            buildTable.AddRow(stat.Abbreviation(), ptsStr, finalMarkup);
+        }
+
+        AnsiConsole.Write(buildTable);
+
+        // Moves
+        var moves = member.GetMoves().ToList();
+        if (moves.Count > 0)
+            AnsiConsole.MarkupLine("  [grey]Moves:[/]  " + string.Join("  [grey]/[/]  ", moves.Select(Markup.Escape)));
+
         AnsiConsole.WriteLine();
     }
 }

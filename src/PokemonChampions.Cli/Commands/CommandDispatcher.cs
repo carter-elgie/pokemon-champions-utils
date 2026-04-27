@@ -17,7 +17,8 @@ public class CommandDispatcher(
     ConfigCommand configCommand,
     TeamsCommand teamsCommand,
     MultiWordNameParser nameParser,
-    IAliasService aliasService)
+    IAliasService aliasService,
+    ITeamService teamService)
 {
     public const string HelpText = """
         [bold]Commands[/]
@@ -216,7 +217,23 @@ public class CommandDispatcher(
             : await DisambiguateAsync(matches, ct);
 
         if (result is null) return;
-        RenderEntity(result.Entity);
+
+        if (result.Entity is Pokemon foundPokemon)
+        {
+            var activeMember = await GetActiveTeamMemberAsync(foundPokemon.ShowdownId, ct);
+            PokemonRenderer.Render(foundPokemon, activeMember);
+        }
+        else
+        {
+            RenderEntity(result.Entity);
+        }
+    }
+
+    private async Task<TeamMember?> GetActiveTeamMemberAsync(string pokemonShowdownId, CancellationToken ct)
+    {
+        var team = await teamService.GetActiveAsync(ct);
+        return team?.Members.FirstOrDefault(m =>
+            string.Equals(m.PokemonShowdownId, pokemonShowdownId, StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task<Pokemon?> ResolvePokemonAsync(string[] tokens, CancellationToken ct)
@@ -239,7 +256,7 @@ public class CommandDispatcher(
 
         AnsiConsole.MarkupLine("[yellow]Ambiguous name — did you mean:[/]");
         for (int i = 0; i < options.Count; i++)
-            AnsiConsole.MarkupLine($"  [{i + 1}] {Markup.Escape(options[i])}");
+            AnsiConsole.MarkupLine($"  [[{i + 1}]] {Markup.Escape(options[i])}");
 
         AnsiConsole.Markup("Enter number: ");
         var line = Console.ReadLine()?.Trim();
