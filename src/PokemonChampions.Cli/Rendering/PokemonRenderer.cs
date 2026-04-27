@@ -66,15 +66,70 @@ public static class PokemonRenderer
             AnsiConsole.WriteLine();
     }
 
-    public static void RenderStatRange(Pokemon pokemon, StatName stat)
+    public static void RenderStatTier(Pokemon pokemon, StatName stat, IReadOnlyList<StatTierEntry> teamEntries)
     {
         var range = StatCalculator.GetRange(pokemon.BaseStats.Get(stat), stat);
-        AnsiConsole.MarkupLine($"[bold]{Markup.Escape(pokemon.Name)}[/] — {stat.DisplayName()}");
+
         AnsiConsole.MarkupLine(
-            $"  Base [grey]→[/] [bold]{range.Base}[/]   " +
-            $"Min [grey]→[/] [bold]{range.Min}[/]   " +
-            $"Max [grey]→[/] [bold]{range.Max}[/]");
+            $"[bold]{Markup.Escape(pokemon.Name)}[/] — {stat.DisplayName()}  " +
+            $"[grey]Base {range.Base}   Min {range.Min}   Max {range.Max}[/]");
         AnsiConsole.WriteLine();
+
+        var minRows = BuildTierRows(pokemon.Name, range.Min, teamEntries, useMax: false)
+            .OrderByDescending(r => r.Stat).ToList();
+        AnsiConsole.MarkupLine("[grey]── Uninvested[/]");
+        RenderTierTable(minRows);
+        AnsiConsole.WriteLine();
+
+        var maxRows = BuildTierRows(pokemon.Name, range.Max, teamEntries, useMax: true)
+            .OrderByDescending(r => r.Stat).ToList();
+        AnsiConsole.MarkupLine("[grey]── Max invest[/]");
+        RenderTierTable(maxRows);
+        AnsiConsole.WriteLine();
+    }
+
+    private record TierRow(string Name, int Stat, bool IsQueried, bool IsEstimated);
+
+    private static List<TierRow> BuildTierRows(
+        string queriedName, int queriedStat,
+        IReadOnlyList<StatTierEntry> teamEntries, bool useMax)
+    {
+        var rows = new List<TierRow>
+        {
+            new(queriedName, queriedStat, IsQueried: true, IsEstimated: false)
+        };
+
+        foreach (var entry in teamEntries)
+        {
+            bool estimated = !entry.Actual.HasValue;
+            int stat = entry.Actual ?? (useMax ? entry.Max : entry.Min);
+            rows.Add(new TierRow(entry.Name, stat, IsQueried: false, IsEstimated: estimated));
+        }
+
+        return rows;
+    }
+
+    private static void RenderTierTable(IReadOnlyList<TierRow> rows)
+    {
+        var table = new Table()
+            .Border(TableBorder.None)
+            .HideHeaders()
+            .AddColumn(new TableColumn("").RightAligned().Width(5))
+            .AddColumn(new TableColumn("").LeftAligned());
+
+        foreach (var row in rows)
+        {
+            string statMarkup = row.IsQueried ? $"[bold]{row.Stat}[/]" : row.Stat.ToString();
+            string nameMarkup = row.IsQueried
+                ? $"[bold]{Markup.Escape(row.Name)}[/]"
+                : row.IsEstimated
+                    ? $"{Markup.Escape(row.Name)}  [grey](team, est.)[/]"
+                    : $"{Markup.Escape(row.Name)}  [grey](team)[/]";
+
+            table.AddRow(statMarkup, nameMarkup);
+        }
+
+        AnsiConsole.Write(table);
     }
 
     private static void RenderBuild(Pokemon pokemon, TeamMember member)

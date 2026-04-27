@@ -39,3 +39,9 @@ public record ComputedStats(int Hp, int Atk, int Def, int SpA, int SpD, int Spe)
         _ => throw new ArgumentOutOfRangeException(nameof(stat))
     };
 }
+
+/// <summary>
+/// One row in a stat tier comparison list, representing a team member alongside the queried Pokemon.
+/// Actual is the computed stat from the member's actual build; null if the member has no build data.
+/// </summary>
+public record StatTierEntry(string Name, int Min, int Max, int? Actual);

@@ -1,6 +1,8 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using PokemonChampions.Core.Formats;
+using PokemonChampions.Core.Formats.Regulations;
 using PokemonChampions.Data;
 using PokemonChampions.Data.Entities;
 using PokemonChampions.Import.Parsers;
@@ -12,7 +14,7 @@ namespace PokemonChampions.Import.Importers;
 /// Downloads and imports the static data files from Pokemon Showdown into the local database.
 /// Covers Pokemon (pokedex), moves, items, abilities, and learnsets.
 /// </summary>
-public class StaticDataImporter(AppDbContext db, HttpClient http, ILogger<StaticDataImporter> logger)
+public class StaticDataImporter(AppDbContext db, HttpClient http, ILogger<StaticDataImporter> logger, FormatRegistry formatRegistry)
 {
     public async Task ImportAllAsync(IProgress<string>? progress = null, CancellationToken ct = default)
     {
@@ -31,6 +33,7 @@ public class StaticDataImporter(AppDbContext db, HttpClient http, ILogger<Static
         progress?.Report("Fetching learnset data...");
         await ImportLearnsetsAsync(ct);
 
+        await SeedFormatDexListsAsync(ct);
         progress?.Report("Done.");
     }
 
@@ -104,6 +107,7 @@ public class StaticDataImporter(AppDbContext db, HttpClient http, ILogger<Static
             entity.AbilityH = abH;
             entity.IsMega = isMega;
             entity.BaseFormShowdownId = baseForm != id ? baseForm : null;
+            entity.IsCurrentGenStandard = !obj.TryGetProperty("isNonstandard", out var ns) || ns.GetString() != "Past";
             entity.UpdatedAt = now;
 
             if (entity.Id == 0)
@@ -317,5 +321,20 @@ public class StaticDataImporter(AppDbContext db, HttpClient http, ILogger<Static
         }
 
         logger.LogInformation("Learnset import complete.");
+    }
+
+    private async Task SeedFormatDexListsAsync(CancellationToken ct)
+    {
+        var paldeaIds = await db.Pokemon
+            .Where(p => p.IsCurrentGenStandard)
+            .Select(p => p.ShowdownId)
+            .ToListAsync(ct);
+
+        if (paldeaIds.Count == 0) return;
+
+        var paldeaSet = new HashSet<string>(paldeaIds, StringComparer.OrdinalIgnoreCase);
+        var regMA = formatRegistry.TryGet("gen9championsregma") as RegulationMA;
+        regMA?.SetPaldeaDex(paldeaSet);
+        logger.LogInformation("Seeded Paldea dex allowlist with {Count} entries.", paldeaSet.Count);
     }
 }

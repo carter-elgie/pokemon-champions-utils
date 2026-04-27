@@ -1,5 +1,6 @@
 using PokemonChampions.Cli.Parsing;
 using PokemonChampions.Cli.Rendering;
+using PokemonChampions.Core.Calculation;
 using PokemonChampions.Core.Domain;
 using PokemonChampions.Core.Services;
 using PokemonChampions.Shared.Enums;
@@ -18,7 +19,8 @@ public class CommandDispatcher(
     TeamsCommand teamsCommand,
     MultiWordNameParser nameParser,
     IAliasService aliasService,
-    ITeamService teamService)
+    ITeamService teamService,
+    IPokemonService pokemonService)
 {
     public const string HelpText = """
         [bold]Commands[/]
@@ -176,7 +178,7 @@ public class CommandDispatcher(
             {
                 var pokemonTokens = tokens[..(tokens.Length - 2)];
                 var pokemon = await ResolvePokemonAsync(pokemonTokens, ct);
-                if (pokemon is not null) { PokemonRenderer.RenderStatRange(pokemon, stat2); return; }
+                if (pokemon is not null) { await RenderStatTierAsync(pokemon, stat2, ct); return; }
             }
 
             if (StatExtensions.TryParseStatFromTokens(tokens, tokens.Length - 1, out var stat1, out _)
@@ -184,7 +186,7 @@ public class CommandDispatcher(
             {
                 var pokemonTokens = tokens[..(tokens.Length - 1)];
                 var pokemon = await ResolvePokemonAsync(pokemonTokens, ct);
-                if (pokemon is not null) { PokemonRenderer.RenderStatRange(pokemon, stat1); return; }
+                if (pokemon is not null) { await RenderStatTierAsync(pokemon, stat1, ct); return; }
             }
         }
 
@@ -242,6 +244,40 @@ public class CommandDispatcher(
         var matches = await nameParser.ResolveAsync(tokens, 0, ct);
         var pokemonMatch = matches.FirstOrDefault(m => m.Type == EntityType.Pokemon);
         return pokemonMatch?.Entity as Pokemon;
+    }
+
+    private async Task RenderStatTierAsync(Pokemon pokemon, StatName stat, CancellationToken ct)
+    {
+        var entries = new List<StatTierEntry>();
+        var team = await teamService.GetActiveAsync(ct);
+
+        if (team is not null)
+        {
+            foreach (var member in team.Members)
+            {
+                if (member.PokemonShowdownId is null) continue;
+                if (string.Equals(member.PokemonShowdownId, pokemon.ShowdownId, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var species = await pokemonService.FindAsync(member.PokemonShowdownId, ct);
+                if (species is null) continue;
+
+                var baseStat = species.BaseStats.Get(stat);
+                var range = StatCalculator.GetRange(baseStat, stat);
+
+                int? actual = null;
+                if (member.Nature is not null)
+                {
+                    var nature = Nature.TryGet(member.Nature) ?? new Nature("?", null, null);
+                    var computed = StatCalculator.Compute(species.BaseStats, member.StatPoints, member.Ivs, nature);
+                    actual = computed.Get(stat);
+                }
+
+                entries.Add(new StatTierEntry(member.DisplayName(species.Name), range.Min, range.Max, actual));
+            }
+        }
+
+        PokemonRenderer.RenderStatTier(pokemon, stat, entries);
     }
 
     // ── Disambiguation ────────────────────────────────────────────────────────

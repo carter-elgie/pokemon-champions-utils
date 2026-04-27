@@ -28,35 +28,78 @@ public sealed class RegulationMA : IFormatDefinition
     public bool AllowsDynamax => false;
     public bool AllowsTerastal => false;
 
-    // National Dex numbers for the Paldea Pokédex (#001–375, #388–392)
-    // Pokemon outside these ranges are banned unless explicitly permitted.
-    private static readonly HashSet<int> PaldeaDexNumbers = BuildPaldeaDex();
-
-    // Explicitly banned Pokemon by Showdown ID (restricted legendaries, paradox Pokemon, etc.)
-    private static readonly HashSet<string> BannedShowdownIds = new(StringComparer.OrdinalIgnoreCase)
-    {
-        // Treasures of Ruin
-        "wo-chien", "chien-pao", "ting-lu", "chi-yu",
-        // Box legendaries
-        "koraidon", "miraidon",
-        // Paradox Pokemon — past forms
-        "great-tusk", "scream-tail", "brute-bonnet", "flutter-mane",
-        "slither-wing", "sandy-shocks", "roaring-moon",
-        // Paradox Pokemon — future forms
-        "iron-treads", "iron-bundle", "iron-hands", "iron-jugulis",
-        "iron-moth", "iron-thorns", "iron-valiant",
-        // Vivillon — only Fancy form allowed
-        "vivillon", // base form; vivillon-fancy is allowed
-        // Non-Paldean regional forms
-        "tauros-paldea-combat", // allowed; non-Paldean Tauros forms are not
-    };
+    // Showdown IDs are lowercase with no hyphens, matching the DB ShowdownId column.
+    // e.g. Wo-Chien → "wochien", Great Tusk → "greattusk"
 
     private static readonly HashSet<string> ExplicitlyAllowed = new(StringComparer.OrdinalIgnoreCase)
     {
-        "vivillon-fancy",
-        "tauros-paldea-combat",
-        "tauros-paldea-blaze",
-        "tauros-paldea-aqua",
+        "vivillonfancy",
+        "taurospaldeacombat",
+        "taurospaldeablaze",
+        "taurospaldeaaqua",
+    };
+
+    private static readonly HashSet<string> BannedShowdownIds = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // ── Gen 9 restricted ────────────────────────────────────────────────
+        // Treasures of Ruin
+        "wochien", "chienpao", "tinglu", "chiyu",
+        // Box legendaries
+        "koraidon", "miraidon",
+        // Paradox Pokemon — past forms
+        "greattusk", "screamtail", "brutebonnet", "fluttermane",
+        "slitherwing", "sandyshocks", "roaringmoon",
+        // Paradox Pokemon — future forms
+        "irontreads", "ironbundle", "ironhands", "ironjugulis",
+        "ironmoth", "ironthorns", "ironvaliant",
+        // DLC legendaries
+        "ogerpon", "ogerponwellspring", "ogerponhearthflame", "ogerponcornerstone",
+        "terapagos", "terapagosstellar",
+        "pecharunt",
+
+        // ── Cross-gen legendaries available in SV ───────────────────────────
+        // Gen 1
+        "articuno", "zapdos", "moltres", "mewtwo", "mew",
+        // Gen 2
+        "raikou", "entei", "suicune", "lugia", "hooh", "celebi",
+        // Gen 3
+        "regirock", "regice", "registeel",
+        "latias", "latios", "kyogre", "groudon", "rayquaza",
+        "jirachi",
+        "deoxys", "deoxysattack", "deoxysdefense", "deoxysspeed",
+        // Gen 4
+        "uxie", "mesprit", "azelf",
+        "dialga", "dialgaorigin", "palkia", "palkiaorigin",
+        "heatran", "regigigas", "giratina", "giratinaorigin", "cresselia",
+        "phione", "manaphy", "darkrai", "shaymin", "shayminsky", "arceus",
+        // Gen 5
+        "cobalion", "terrakion", "virizion",
+        "tornadus", "tornadustherian", "thundurus", "thundurustherian",
+        "landorus", "landorustherian",
+        "reshiram", "zekrom", "kyurem", "kyuremblack", "kyuremwhite",
+        "keldeo", "keldeoresolute",
+        "meloetta", "meloettapirouette",
+        "genesect", "genesectburn", "genesectchill", "genesectdouse", "genesectshock",
+        // Gen 6
+        "xerneas", "yveltal",
+        "zygarde", "zygarde10", "zygardecomplete",
+        "diancie", "hoopa", "hoopaunbound", "volcanion",
+        // Gen 7
+        "solgaleo", "lunala",
+        "necrozma", "necrozmaduskmane", "necrozmadawnwings", "necrozmaultra",
+        "magearna", "marshadow", "zeraora", "meltan", "melmetal",
+        // Gen 8
+        "zacian", "zaciancrowned", "zamazenta", "zamazentacrowned", "eternatus",
+        "kubfu", "urshifu", "urshifurapidstrike",
+        "zarude", "zarudedada",
+        "regieleki", "regidrago",
+        "glastrier", "spectrier", "calyrex", "calyrexice", "calyrexshadow",
+        "enamorus", "enamorustherian",
+
+        // ── Vivillon — only Fancy form allowed ──────────────────────────────
+        "vivillon",
+        // Non-Paldean Tauros
+        "tauros",
     };
 
     public void SetPaldeaDex(IReadOnlySet<string> paldeaDexIds) => _paldeaDex = paldeaDexIds;
@@ -86,15 +129,4 @@ public sealed class RegulationMA : IFormatDefinition
         new NoDuplicateItemsConstraint(),
         new MegaEvolutionLimitConstraint(maxMegas: 1),
     ];
-
-    private static HashSet<int> BuildPaldeaDex()
-    {
-        var dex = new HashSet<int>();
-        // Paldea Dex range: 001–375 (Sprigatito through Baxcalibur)
-        for (int i = 1; i <= 375; i++) dex.Add(i);
-        // Plus Iron Leaves (#906), Walking Wake (#907) — check official list
-        // Additional entries: #388–392 (Tinkaton line and Flamigo)
-        for (int i = 388; i <= 392; i++) dex.Add(i);
-        return dex;
-    }
 }

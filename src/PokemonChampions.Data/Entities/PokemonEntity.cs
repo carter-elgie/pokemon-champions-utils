@@ -47,6 +47,13 @@ public class PokemonEntity
     [MaxLength(100)]
     public string? BaseFormShowdownId { get; set; }
 
+    /// <summary>
+    /// True if this Pokemon is available in the current generation (Gen 9 Scarlet/Violet,
+    /// including via HOME). False if Showdown marks it as "isNonstandard: Past".
+    /// Defaults to true so existing rows remain usable before the next update run.
+    /// </summary>
+    public bool IsCurrentGenStandard { get; set; } = true;
+
     /// <summary>Comma-separated list of format IDs in which this Pokemon is banned.</summary>
     [MaxLength(500)]
     public string? FormatBans { get; set; }
