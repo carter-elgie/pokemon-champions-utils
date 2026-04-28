@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using PokemonChampions.Core.Domain;
 using PokemonChampions.Core.Formats;
@@ -72,8 +73,20 @@ public class MoveService(AppDbContext db, ISettingsService settings, FormatRegis
         Priority = e.Priority,
         Target = e.Target,
         ShortDesc = e.ShortDesc,
-        Desc = e.Desc
+        Desc = e.Desc,
+        Flags = ParseFlags(e.Flags)
     };
+
+    private static IReadOnlySet<string> ParseFlags(string? flagsJson)
+    {
+        if (string.IsNullOrEmpty(flagsJson)) return new HashSet<string>();
+        try
+        {
+            var dict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(flagsJson);
+            return dict is not null ? dict.Keys.ToHashSet() : new HashSet<string>();
+        }
+        catch { return new HashSet<string>(); }
+    }
 
     private async Task<IFormatDefinition?> GetCurrentFormatAsync(CancellationToken ct)
     {

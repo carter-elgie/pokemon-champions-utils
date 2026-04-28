@@ -17,4 +17,7 @@ public class Move
     public string? ShortDesc { get; init; }
     public string? Desc { get; init; }
     public bool IsLegalInCurrentFormat { get; set; }
+
+    /// <summary>Showdown move flags, e.g. "contact", "bite", "punch", "sound".</summary>
+    public IReadOnlySet<string> Flags { get; init; } = new HashSet<string>();
 }

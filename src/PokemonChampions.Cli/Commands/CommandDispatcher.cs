@@ -33,6 +33,9 @@ public class CommandDispatcher(
           [bold]<pokemon> <stat>[/]               Stat tier list vs. team (e.g. "incineroar speed")
           [bold]<pokemon> <stat> [[nature]] [[pts]][/]   Build comparison (e.g. "incineroar speed jolly 16")
           [bold]                 [[modifiers...]][/]      Modifiers: scarf, tailwind, para, +N, -N
+          [bold]<atk> [[+N]] <move> > <def> [[-N]][/]    Outgoing damage calc (e.g. "sneasler +1 close-combat > incineroar")
+          [bold]<def> < <atk> [[+N]] <move>[/]           Incoming damage calc (e.g. "incineroar < sneasler close-combat")
+          [bold]             [[--weather sun|rain|sand|snow]] [[--screens]][/]
           [bold]alias <text> <target>[/]          Create an alias  (e.g. alias mcy charizard-mega-y)
           [bold]alias remove <text>[/]            Remove an alias
           [bold]alias list[/]                     List all aliases
@@ -173,6 +176,20 @@ public class CommandDispatcher(
 
     private async Task HandleLookupAsync(string[] tokens, CancellationToken ct)
     {
+        // Check for damage calc: tokens containing ">" or "<" operator
+        int gtIdx = Array.IndexOf(tokens, ">");
+        int ltIdx = Array.IndexOf(tokens, "<");
+        if (gtIdx > 0)
+        {
+            await HandleDamageCalcAsync(tokens, gtIdx, isOutgoing: true, ct);
+            return;
+        }
+        if (ltIdx > 0 && ltIdx < tokens.Length - 1)
+        {
+            await HandleDamageCalcAsync(tokens, ltIdx, isOutgoing: false, ct);
+            return;
+        }
+
         // Check for stat lookup: "<pokemon...> <stat> [modifiers...]"
         // Scan forward from index 1 for the first stat token; everything after it is modifiers.
         if (tokens.Length >= 2)
@@ -392,6 +409,214 @@ public class CommandDispatcher(
         Ability a => (EntityType.Ability, a.ShowdownId),
         _         => (EntityType.Pokemon, string.Empty)
     };
+
+    // ── Damage calculation ────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Handles "attacker [+N] move > defender [-N] [--weather W] [--screens]"
+    /// and the reversed incoming form "defender < attacker [+N] move [flags]".
+    /// </summary>
+    private async Task HandleDamageCalcAsync(string[] allTokens, int opIdx, bool isOutgoing, CancellationToken ct)
+    {
+        var battle = ExtractBattleState(allTokens, out var cleanTokens);
+        opIdx = Array.IndexOf(cleanTokens, isOutgoing ? ">" : "<");
+        if (opIdx < 0) { AnsiConsole.MarkupLine("[red]Could not parse calc expression.[/]"); return; }
+
+        string[] atkSideTokens = isOutgoing ? cleanTokens[..opIdx] : cleanTokens[(opIdx + 1)..];
+        string[] defSideTokens = isOutgoing ? cleanTokens[(opIdx + 1)..] : cleanTokens[..opIdx];
+
+        var (attacker, move, atkStage) = await ParseAttackerSideAsync(atkSideTokens, ct);
+        var (defender, defStage)       = await ParseDefenderSideAsync(defSideTokens, ct);
+
+        if (attacker is null)
+        { AnsiConsole.MarkupLine("[red]Could not resolve attacker.[/]"); return; }
+        if (move is null)
+        { AnsiConsole.MarkupLine("[red]Could not resolve move.[/]"); return; }
+        if (defender is null)
+        { AnsiConsole.MarkupLine("[red]Could not resolve defender.[/]"); return; }
+
+        if (move.Power is null or 0 && move.Category != MoveCategory.Status)
+        {
+            AnsiConsole.MarkupLine("[grey]Power not available for this move — cannot calculate damage.[/]");
+            return;
+        }
+
+        bool isPhysical = move.Category == MoveCategory.Physical;
+
+        // ── Resolve attacker stats ─────────────────────────────────────────
+        var activeTeam   = await teamService.GetActiveAsync(ct);
+        var atkMember    = activeTeam?.Members.FirstOrDefault(m =>
+            string.Equals(m.PokemonShowdownId, attacker.ShowdownId, StringComparison.OrdinalIgnoreCase));
+
+        ComputedStats atkStats;
+        string attackerLabel;
+        string? atkAbility, atkItem;
+
+        if (atkMember is not null && atkMember.Nature is not null)
+        {
+            var nature = Nature.TryGet(atkMember.Nature) ?? new Nature("?", null, null);
+            atkStats   = StatCalculator.Compute(attacker.BaseStats, atkMember.StatPoints, atkMember.Ivs, nature);
+            atkAbility = atkMember.Ability;
+            atkItem    = atkMember.Item;
+            attackerLabel = BuildAttackerLabel(atkMember, nature, isPhysical);
+        }
+        else
+        {
+            // Unknown build — show max offensive investment
+            int maxEv = AppConstants.MaxStatPointsPerStat * 8;
+            int maxAtk = StatCalculator.CalculateStat(attacker.BaseStats.Atk, AppConstants.MaxIv, maxEv, 1.1);
+            int maxSpA = StatCalculator.CalculateStat(attacker.BaseStats.SpA, AppConstants.MaxIv, maxEv, 1.1);
+            atkStats   = new ComputedStats(0, maxAtk, 0, maxSpA, 0, 0);
+            atkAbility = null;
+            atkItem    = null;
+            attackerLabel = isPhysical ? $"max Atk ({maxAtk})" : $"max SpA ({maxSpA})";
+        }
+
+        // ── Resolve defender scenarios ─────────────────────────────────────
+        var defMember = activeTeam?.Members.FirstOrDefault(m =>
+            string.Equals(m.PokemonShowdownId, defender.ShowdownId, StringComparison.OrdinalIgnoreCase));
+
+        var scenarios = new List<(string Label, DamageResult Result)>();
+
+        if (defMember is not null && defMember.Nature is not null)
+        {
+            var defNature = Nature.TryGet(defMember.Nature) ?? new Nature("?", null, null);
+            var defStats  = StatCalculator.Compute(defender.BaseStats, defMember.StatPoints, defMember.Ivs, defNature);
+            var ctx = new DamageContext(attacker, atkStats, atkAbility, atkItem, atkStage,
+                                        defender, defStats, defStage, move, battle);
+            var result = DamageCalculator.Calculate(ctx);
+            scenarios.Add(("Your " + defMember.DisplayName(defender.Name), result));
+        }
+        else
+        {
+            int maxEv = AppConstants.MaxStatPointsPerStat * 8;
+            StatName defStatName = isPhysical ? StatName.Def : StatName.SpD;
+            int baseDefStat = isPhysical ? defender.BaseStats.Def : defender.BaseStats.SpD;
+
+            // Min bulk scenario
+            int minDefStat = StatCalculator.CalculateStat(baseDefStat, AppConstants.MaxIv, 0, 0.9);
+            int minHp      = StatCalculator.CalculateHp(defender.BaseStats.Hp, AppConstants.MaxIv, 0);
+            var minStats   = isPhysical
+                ? new ComputedStats(minHp, 0, minDefStat, 0, 0, 0)
+                : new ComputedStats(minHp, 0, 0, 0, minDefStat, 0);
+            var ctxMin     = new DamageContext(attacker, atkStats, atkAbility, atkItem, atkStage,
+                                               defender, minStats, defStage, move, battle);
+            scenarios.Add(($"0 {defStatName} ({minDefStat} / {minHp} HP)", DamageCalculator.Calculate(ctxMin)));
+
+            // Max bulk scenario
+            int maxDefStat = StatCalculator.CalculateStat(baseDefStat, AppConstants.MaxIv, maxEv, 1.1);
+            int maxHp      = StatCalculator.CalculateHp(defender.BaseStats.Hp, AppConstants.MaxIv, maxEv);
+            var maxStats   = isPhysical
+                ? new ComputedStats(maxHp, 0, maxDefStat, 0, 0, 0)
+                : new ComputedStats(maxHp, 0, 0, 0, maxDefStat, 0);
+            var ctxMax     = new DamageContext(attacker, atkStats, atkAbility, atkItem, atkStage,
+                                               defender, maxStats, defStage, move, battle);
+            scenarios.Add(($"Max {defStatName} ({maxDefStat} / {maxHp} HP)", DamageCalculator.Calculate(ctxMax)));
+        }
+
+        DamageRenderer.Render(move, attacker, attackerLabel, defender, scenarios, battle, !isOutgoing);
+    }
+
+    private static string BuildAttackerLabel(TeamMember member, Nature nature, bool isPhysical)
+    {
+        var parts = new List<string>();
+        if (!nature.IsNeutral) parts.Add(nature.Name);
+        var sp = isPhysical ? member.StatPoints.Atk : member.StatPoints.SpA;
+        if (sp > 0) parts.Add($"{sp} SP {(isPhysical ? "Atk" : "SpA")}");
+        if (member.Item is not null) parts.Add($"@ {member.Item}");
+        return parts.Count > 0 ? string.Join(", ", parts) : "team";
+    }
+
+    private async Task<(Pokemon? Pokemon, Move? Move, int Stage)> ParseAttackerSideAsync(
+        string[] tokens, CancellationToken ct)
+    {
+        int stage = ExtractStage(tokens, out var rest);
+
+        // Try all splits: first N tokens = pokemon, remainder = move
+        for (int pokemonLen = 1; pokemonLen < rest.Length; pokemonLen++)
+        {
+            var pokemonTokens = rest[..pokemonLen];
+            var moveTokens    = rest[pokemonLen..];
+            if (moveTokens.Length == 0) continue;
+
+            var pokemon = await ResolvePokemonAsync(pokemonTokens, ct);
+            if (pokemon is null) continue;
+
+            var move = await ResolveMoveAsync(moveTokens, ct);
+            if (move is not null) return (pokemon, move, stage);
+        }
+
+        return (null, null, 0);
+    }
+
+    private async Task<(Pokemon? Pokemon, int Stage)> ParseDefenderSideAsync(
+        string[] tokens, CancellationToken ct)
+    {
+        int stage = ExtractStage(tokens, out var rest);
+        var pokemon = await ResolvePokemonAsync(rest, ct);
+        return (pokemon, stage);
+    }
+
+    private static int ExtractStage(string[] tokens, out string[] remainder)
+    {
+        int stage = 0;
+        var kept  = new List<string>();
+        foreach (var t in tokens)
+        {
+            if (IsStageToken(t, out int s)) { stage = Math.Clamp(stage + s, -6, 6); }
+            else kept.Add(t);
+        }
+        remainder = [.. kept];
+        return stage;
+    }
+
+    private static bool IsStageToken(string token, out int stage)
+    {
+        stage = 0;
+        if (token.Length < 2) return false;
+        char first = token[0];
+        if (first != '+' && first != '-') return false;
+        if (!int.TryParse(token, out stage)) return false;
+        return Math.Abs(stage) >= 1 && Math.Abs(stage) <= 6;
+    }
+
+    private static BattleState ExtractBattleState(string[] tokens, out string[] remainder)
+    {
+        var weather = DamageWeather.None;
+        bool screens = false;
+        var kept = new List<string>();
+        int i = 0;
+        while (i < tokens.Length)
+        {
+            var t = tokens[i].ToLowerInvariant();
+            if (t == "--weather" && i + 1 < tokens.Length)
+            {
+                weather = tokens[i + 1].ToLowerInvariant() switch
+                {
+                    "sun"  => DamageWeather.Sun,
+                    "rain" => DamageWeather.Rain,
+                    "sand" => DamageWeather.Sand,
+                    "snow" or "hail" => DamageWeather.Snow,
+                    _ => DamageWeather.None
+                };
+                i += 2;
+                continue;
+            }
+            if (t == "--screens") { screens = true; i++; continue; }
+            kept.Add(tokens[i]);
+            i++;
+        }
+        remainder = [.. kept];
+        return new BattleState(weather, screens);
+    }
+
+    private async Task<Move?> ResolveMoveAsync(string[] tokens, CancellationToken ct)
+    {
+        if (tokens.Length == 0) return null;
+        var matches = await nameParser.ResolveAsync(tokens, 0, ct);
+        var moveMatch = matches.FirstOrDefault(m => m.Type == EntityType.Move);
+        return moveMatch?.Entity as Move;
+    }
 
     // ── Tokenizer ─────────────────────────────────────────────────────────────
 

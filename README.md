@@ -209,15 +209,25 @@ sneasler close-combat > incineroar
 incineroar < sneasler close-combat
 ```
 
-Modifiers:
+Stat stages and field conditions:
 
 ```
-sneasler +1 close-combat > incineroar -1
+sneasler +1 close-combat > incineroar -1    # attacker +1 / defender -1 stage
 flutter-mane moonblast > incineroar --weather sun
 sneasler close-combat > incineroar --screens
 ```
 
-Your team member's actual item, ability, EVs, and IVs are automatically used without you needing to specify them. The opponent's stats are calculated at minimum bulk, maximum bulk, and (in online mode) the most common EV spread.
+Supported `--weather` values: `sun`, `rain`, `sand`, `snow` (or `hail`). `--screens` applies Reflect for Physical moves and Light Screen for Special moves.
+
+**How stats are resolved:**
+
+- If the attacker is on your active team, their actual nature, stat points, IVs, item, and ability are used automatically.
+- If not, damage is shown at maximum offensive investment.
+- If the defender is on your active team, their actual build is used. Otherwise two scenarios are shown: minimum bulk (0 EVs, hindering nature) and maximum bulk (32 SP, boosting nature).
+
+**Attacker ability bonuses applied automatically** (when the team member's ability matches): Adaptability (STAB ×2), Technician (BP ≤ 60 → ×1.5), Strong Jaw (bite moves ×1.5), Iron Fist (punch moves ×1.2), Tough Claws (contact moves ×1.3), Punk Rock (sound moves ×1.3).
+
+**Item bonuses applied automatically**: Choice Band (physical ×1.5), Choice Specs (special ×1.5), Life Orb (damage ×1.3).
 
 ---
 
