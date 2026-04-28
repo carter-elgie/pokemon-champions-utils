@@ -18,6 +18,7 @@ public sealed class RegulationMA : IFormatDefinition
 
     public string ShowdownId => "gen9championsregma";
     public string DisplayName => "[Champions] VGC 2026 Reg M-A";
+    public string? MunchStatsFormatId => "gen9championsvgc2026regma";
     public int Generation => 9;
     public int LevelCap => 50;
     public int TeamPreviewSize => 6;

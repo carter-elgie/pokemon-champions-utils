@@ -4,6 +4,7 @@ using PokemonChampions.Shared.Enums;
 using PokemonChampions.Shared.Extensions;
 using Spectre.Console;
 
+
 namespace PokemonChampions.Cli.Rendering;
 
 public static class PokemonRenderer
@@ -11,7 +12,11 @@ public static class PokemonRenderer
     private static readonly StatName[] StatOrder =
         [StatName.Hp, StatName.Atk, StatName.Def, StatName.SpA, StatName.SpD, StatName.Spe];
 
-    public static void Render(Pokemon pokemon, TeamMember? member = null)
+    public static void Render(
+        Pokemon pokemon,
+        TeamMember? member = null,
+        PokemonUsageStats? usage = null,
+        bool detailed = false)
     {
         // ── Header ──────────────────────────────────────────────────────────
         var typeStr = TypeColors.Badge(pokemon.Type1);
@@ -59,31 +64,79 @@ public static class PokemonRenderer
         if (pokemon.IsMega && pokemon.BaseFormShowdownId is not null)
             AnsiConsole.MarkupLine($"[grey]Mega evolution of:[/] {Markup.Escape(pokemon.BaseFormShowdownId)}");
 
+        // ── Usage stats ──────────────────────────────────────────────────────
+        if (usage is not null)
+            RenderUsage(usage, detailed);
+        else
+            AnsiConsole.WriteLine();
+
         // ── Team build ───────────────────────────────────────────────────────
         if (member is not null)
             RenderBuild(pokemon, member);
-        else
+        else if (usage is null)
             AnsiConsole.WriteLine();
     }
 
-    public static void RenderStatTier(Pokemon pokemon, StatName stat, IReadOnlyList<StatTierEntry> teamEntries)
+    private static void RenderUsage(PokemonUsageStats usage, bool detailed)
     {
+        AnsiConsole.WriteLine();
+        var monthLabel = usage.StatsMonth is not null ? $" ({usage.StatsMonth})" : string.Empty;
+        AnsiConsole.MarkupLine($"[grey]── Usage stats{Markup.Escape(monthLabel)} ─────────────────────────────────[/]");
+        AnsiConsole.MarkupLine($"  Usage: [bold]{usage.UsagePct:F2}%[/]");
+
+        if (usage.Moves.Count > 0)
+        {
+            int showCount = detailed ? usage.Moves.Count : Math.Min(5, usage.Moves.Count);
+            var moveParts = usage.Moves.Take(showCount)
+                .Select(m => $"{Markup.Escape(m.Name)} [grey]({m.UsagePct:F1}%)[/]");
+            AnsiConsole.MarkupLine("  [grey]Moves:[/]  " + string.Join("  [grey]|[/]  ", moveParts));
+        }
+        else
+        {
+            AnsiConsole.MarkupLine("  [grey]Move data not yet cached — run[/] update --online [grey]or look up again online.[/]");
+        }
+
+        AnsiConsole.WriteLine();
+    }
+
+    public static void RenderStatTier(
+        Pokemon pokemon, StatName stat,
+        IReadOnlyList<StatTierEntry> teamEntries,
+        StatModifierSet? modifiers = null)
+    {
+        modifiers ??= StatModifierSet.None;
         var range = StatCalculator.GetRange(pokemon.BaseStats.Get(stat), stat);
 
-        AnsiConsole.MarkupLine(
-            $"[bold]{Markup.Escape(pokemon.Name)}[/] — {stat.DisplayName()}  " +
-            $"[grey]Base {range.Base}   Min {range.Min}   Max {range.Max}[/]");
+        // Header: name, stat name, base/min/max
+        var header = $"[bold]{Markup.Escape(pokemon.Name)}[/] — {stat.DisplayName()}  " +
+                     $"[grey]Base {range.Base}   Min {range.Min}   Max {range.Max}[/]";
+        AnsiConsole.MarkupLine(header);
+
+        // Modifier line (only shown when active)
+        if (modifiers.HasAny)
+        {
+            var mult = modifiers.TotalMultiplier;
+            AnsiConsole.MarkupLine(
+                $"  [grey]{Markup.Escape(modifiers.Describe())} (×{mult:F2})[/]   " +
+                $"[grey]→  Min [bold]{modifiers.Apply(range.Min)}[/]   Max [bold]{modifiers.Apply(range.Max)}[/][/]");
+        }
+
         AnsiConsole.WriteLine();
 
-        var minRows = BuildTierRows(pokemon.Name, range.Min, teamEntries, useMax: false)
+        int queriedMin = modifiers.Apply(range.Min);
+        int queriedMax = modifiers.Apply(range.Max);
+
+        var modLabel = modifiers.HasAny ? $" + {modifiers.Describe()}" : string.Empty;
+
+        var minRows = BuildTierRows(pokemon.Name, queriedMin, teamEntries, useMax: false)
             .OrderByDescending(r => r.Stat).ToList();
-        AnsiConsole.MarkupLine("[grey]── Uninvested[/]");
+        AnsiConsole.MarkupLine($"[grey]── Uninvested{Markup.Escape(modLabel)}[/]");
         RenderTierTable(minRows);
         AnsiConsole.WriteLine();
 
-        var maxRows = BuildTierRows(pokemon.Name, range.Max, teamEntries, useMax: true)
+        var maxRows = BuildTierRows(pokemon.Name, queriedMax, teamEntries, useMax: true)
             .OrderByDescending(r => r.Stat).ToList();
-        AnsiConsole.MarkupLine("[grey]── Max invest[/]");
+        AnsiConsole.MarkupLine($"[grey]── Max invest{Markup.Escape(modLabel)}[/]");
         RenderTierTable(maxRows);
         AnsiConsole.WriteLine();
     }

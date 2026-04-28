@@ -42,4 +42,10 @@ public interface IFormatDefinition
 
     /// <summary>Team-level constraints applied to the full six-member team.</summary>
     IReadOnlyList<ITeamConstraint> TeamConstraints { get; }
+
+    /// <summary>
+    /// The MunchStats format identifier used to fetch live usage data, or null if unsupported.
+    /// e.g. "gen9championsvgc2026regma" for Champions Reg M-A.
+    /// </summary>
+    string? MunchStatsFormatId => null;
 }

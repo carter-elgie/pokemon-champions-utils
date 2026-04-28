@@ -3,6 +3,7 @@ using PokemonChampions.Cli.Rendering;
 using PokemonChampions.Core.Calculation;
 using PokemonChampions.Core.Domain;
 using PokemonChampions.Core.Services;
+using PokemonChampions.Shared.Constants;
 using PokemonChampions.Shared.Enums;
 using PokemonChampions.Shared.Extensions;
 using Spectre.Console;
@@ -20,7 +21,9 @@ public class CommandDispatcher(
     MultiWordNameParser nameParser,
     IAliasService aliasService,
     ITeamService teamService,
-    IPokemonService pokemonService)
+    IPokemonService pokemonService,
+    IUsageStatsService usageStatsService,
+    ISettingsService settingsService)
 {
     public const string HelpText = """
         [bold]Commands[/]
@@ -168,25 +171,22 @@ public class CommandDispatcher(
 
     private async Task HandleLookupAsync(string[] tokens, CancellationToken ct)
     {
-        // Check for stat lookup: "<pokemon...> <stat>" or "<pokemon...> <stat1> <stat2>"
-        // Try from the end: 2-token stat first (e.g. "special attack"), then 1-token stat
+        // Check for stat lookup: "<pokemon...> <stat> [modifiers...]"
+        // Scan forward from index 1 for the first stat token; everything after it is modifiers.
         if (tokens.Length >= 2)
         {
-            if (StatExtensions.TryParseStatFromTokens(tokens, tokens.Length - 2, out var stat2, out var consumed2)
-                && consumed2 == 2
-                && tokens.Length - 2 >= 1)
+            for (int si = 1; si < tokens.Length; si++)
             {
-                var pokemonTokens = tokens[..(tokens.Length - 2)];
+                if (!StatExtensions.TryParseStatFromTokens(tokens, si, out var stat, out var consumed)) continue;
+                var pokemonTokens = tokens[..si];
+                var modifierTokens = tokens[(si + consumed)..];
                 var pokemon = await ResolvePokemonAsync(pokemonTokens, ct);
-                if (pokemon is not null) { await RenderStatTierAsync(pokemon, stat2, ct); return; }
-            }
-
-            if (StatExtensions.TryParseStatFromTokens(tokens, tokens.Length - 1, out var stat1, out _)
-                && tokens.Length - 1 >= 1)
-            {
-                var pokemonTokens = tokens[..(tokens.Length - 1)];
-                var pokemon = await ResolvePokemonAsync(pokemonTokens, ct);
-                if (pokemon is not null) { await RenderStatTierAsync(pokemon, stat1, ct); return; }
+                if (pokemon is not null)
+                {
+                    var modifiers = StatModifierSet.Parse(modifierTokens);
+                    await RenderStatTierAsync(pokemon, stat, modifiers, ct);
+                    return;
+                }
             }
         }
 
@@ -223,7 +223,10 @@ public class CommandDispatcher(
         if (result.Entity is Pokemon foundPokemon)
         {
             var activeMember = await GetActiveTeamMemberAsync(foundPokemon.ShowdownId, ct);
-            PokemonRenderer.Render(foundPokemon, activeMember);
+            var formatId = await settingsService.GetAsync(AppConstants.SettingKeys.CurrentFormat, ct)
+                           ?? AppConstants.DefaultFormat;
+            var usageStats = await usageStatsService.GetAsync(foundPokemon.ShowdownId, formatId, ct);
+            PokemonRenderer.Render(foundPokemon, activeMember, usageStats, detailed);
         }
         else
         {
@@ -246,7 +249,7 @@ public class CommandDispatcher(
         return pokemonMatch?.Entity as Pokemon;
     }
 
-    private async Task RenderStatTierAsync(Pokemon pokemon, StatName stat, CancellationToken ct)
+    private async Task RenderStatTierAsync(Pokemon pokemon, StatName stat, StatModifierSet modifiers, CancellationToken ct)
     {
         var entries = new List<StatTierEntry>();
         var team = await teamService.GetActiveAsync(ct);
@@ -277,7 +280,7 @@ public class CommandDispatcher(
             }
         }
 
-        PokemonRenderer.RenderStatTier(pokemon, stat, entries);
+        PokemonRenderer.RenderStatTier(pokemon, stat, entries, modifiers);
     }
 
     // ── Disambiguation ────────────────────────────────────────────────────────

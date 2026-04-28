@@ -9,6 +9,8 @@ using PokemonChampions.Core.Services;
 using PokemonChampions.Data;
 using PokemonChampions.Data.Services;
 using PokemonChampions.Import.Importers;
+using PokemonChampions.Import.Sources;
+using PokemonChampions.Shared.Constants;
 
 namespace PokemonChampions.Cli;
 
@@ -22,10 +24,15 @@ public static class ServiceRegistration
         services.AddDbContext<AppDbContext>(options =>
             options.UseSqlite($"Data Source={dbPath}"));
 
-        // HTTP — StaticDataImporter is transient (registered by AddHttpClient)
+        // HTTP — typed clients are transient
         services.AddHttpClient<StaticDataImporter>(client =>
         {
             client.Timeout = TimeSpan.FromSeconds(60);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("PokemonChampionsUtils/1.0");
+        });
+        services.AddHttpClient<MunchStatsSource>(client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("PokemonChampionsUtils/1.0");
         });
 
@@ -47,6 +54,10 @@ public static class ServiceRegistration
 
         // Team service lives in Cli because it depends on both Data and Import
         services.AddScoped<ITeamService, TeamService>();
+
+        // Usage stats — importer is scoped (wraps MunchStatsSource + DbContext)
+        services.AddScoped<UsageStatsImporter>();
+        services.AddScoped<IUsageStatsService, UsageStatsService>();
 
         // CLI layer — scoped (depend on scoped data services)
         services.AddScoped<MultiWordNameParser>();

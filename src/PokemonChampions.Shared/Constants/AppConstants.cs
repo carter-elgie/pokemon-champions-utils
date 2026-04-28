@@ -42,9 +42,10 @@ public static class AppConstants
         public const string Stats = "https://www.smogon.com/stats";
     }
 
-    public static class MunchStatsBaseUrl
+    public static class MunchStats
     {
         public const string Base = "https://munchstats.com";
-        public const string FormatsIndex = $"{Base}/";
+        /// <summary>MunchStats format ID for Champions Reg M-A.</summary>
+        public const string ChampionsRegMaFormatId = "gen9championsvgc2026regma";
     }
 }
