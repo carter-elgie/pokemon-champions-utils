@@ -68,9 +68,11 @@ public static class DamageCalculator
 
         if (abilityId is "technician" && power <= 60)
             power = (int)Math.Floor(power * 1.5);
-        if (abilityId is "strongjaw" && move.Flags.Contains("bite"))
+        if (abilityId is "strongjaw" && move.Flags.Contains("bite") && 
+            !move.Name.Equals("bug bite", StringComparison.InvariantCultureIgnoreCase))
             power = (int)Math.Floor(power * 1.5);
-        if (abilityId is "ironfist" && move.Flags.Contains("punch"))
+        if (abilityId is "ironfist" && move.Flags.Contains("punch") && 
+            !move.Name.Equals("sucker punch", StringComparison.InvariantCultureIgnoreCase))
             power = (int)Math.Floor(power * 1.2);
         if (abilityId is "toughclaws" && move.Flags.Contains("contact"))
             power = (int)Math.Floor(power * 1.3);
