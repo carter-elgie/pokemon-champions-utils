@@ -13,7 +13,7 @@ public class MunchStatsSource(HttpClient http)
 {
     // Pair: left-text span (name) followed within ~400 chars by right-text span (number%)
     private static readonly Regex PairPattern = new(
-        "class=\"left-text[^\"]*\">([^<]+)</span>[\\s\\S]{0,400}?class=\"right-text\">([0-9]+\\.?[0-9]*)%</span>",
+        "class=\"left-text\"[^>]*>([^<]+)</span>[\\s\\S]{0,400}?class=\"right-text\"[^>]*>([0-9]+\\.?[0-9]*)%</span>",
         RegexOptions.Compiled);
 
     private static readonly Regex OverallUsagePattern = new(

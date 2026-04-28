@@ -53,8 +53,9 @@ public class UpdateCommand(StaticDataImporter staticImporter, UsageStatsImporter
             }
             catch (Exception ex)
             {
+                var detail = ex.InnerException?.Message ?? ex.Message;
                 AnsiConsole.MarkupLine(
-                    $"[yellow]⚠ Usage stats unavailable for {Markup.Escape(format.DisplayName)}: {Markup.Escape(ex.Message)}[/]");
+                    $"[yellow]⚠ Usage stats unavailable for {Markup.Escape(format.DisplayName)}: {Markup.Escape(detail)}[/]");
             }
         }
         if (total > 0)

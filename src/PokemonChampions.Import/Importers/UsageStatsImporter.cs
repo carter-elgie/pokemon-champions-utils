@@ -25,6 +25,7 @@ public class UsageStatsImporter(AppDbContext db, MunchStatsSource munchStats)
         var month = result.Month ?? "live";
         var now = DateTime.UtcNow;
         int imported = 0;
+        var seenIds = new HashSet<int>();
 
         foreach (var (displayName, usagePct) in result.Pokemon)
         {
@@ -32,6 +33,7 @@ public class UsageStatsImporter(AppDbContext db, MunchStatsSource munchStats)
             var pokemonEntity = await db.Pokemon
                 .FirstOrDefaultAsync(p => p.NormalizedId == normalized, ct);
             if (pokemonEntity is null) continue;
+            if (!seenIds.Add(pokemonEntity.Id)) continue; // skip if two names resolve to same Pokemon
 
             var existing = await db.UsageStats.FirstOrDefaultAsync(u =>
                 u.PokemonId == pokemonEntity.Id &&
