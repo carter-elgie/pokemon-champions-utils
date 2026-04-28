@@ -96,6 +96,14 @@ public static class PokemonRenderer
             AnsiConsole.MarkupLine("  [grey]Move data not yet cached — run[/] update --online [grey]or look up again online.[/]");
         }
 
+        if (usage.Teammates.Count > 0)
+        {
+            int showCount = detailed ? usage.Teammates.Count : Math.Min(3, usage.Teammates.Count);
+            var tmParts = usage.Teammates.Take(showCount)
+                .Select(t => $"{Markup.Escape(t.Name)} [grey]({t.UsagePct:F1}%)[/]");
+            AnsiConsole.MarkupLine("  [grey]Teammates:[/]  " + string.Join("  [grey]|[/]  ", tmParts));
+        }
+
         AnsiConsole.WriteLine();
     }
 
@@ -138,6 +146,42 @@ public static class PokemonRenderer
             .OrderByDescending(r => r.Stat).ToList();
         AnsiConsole.MarkupLine($"[grey]── Max invest{Markup.Escape(modLabel)}[/]");
         RenderTierTable(maxRows);
+        AnsiConsole.WriteLine();
+    }
+
+    public static void RenderStatBuild(
+        Pokemon pokemon,
+        StatName stat,
+        int queriedStat,
+        int unmodifiedStat,
+        string buildLabel,
+        IReadOnlyList<StatTierEntry> teamEntries,
+        StatModifierSet? modifiers = null)
+    {
+        modifiers ??= StatModifierSet.None;
+        var range = StatCalculator.GetRange(pokemon.BaseStats.Get(stat), stat);
+
+        AnsiConsole.MarkupLine(
+            $"[bold]{Markup.Escape(pokemon.Name)}[/] — {stat.DisplayName()}  " +
+            $"[grey]Base {range.Base}   Min {range.Min}   Max {range.Max}[/]");
+
+        AnsiConsole.MarkupLine($"  [grey]{Markup.Escape(buildLabel)}[/] → [bold]{unmodifiedStat}[/]");
+
+        if (modifiers.HasAny)
+        {
+            AnsiConsole.MarkupLine(
+                $"  [grey]{Markup.Escape(modifiers.Describe())} (×{modifiers.TotalMultiplier:F2})[/]   " +
+                $"[grey]→[/] [bold]{queriedStat}[/]");
+        }
+
+        AnsiConsole.WriteLine();
+
+        var modLabel = modifiers.HasAny ? $" + {modifiers.Describe()}" : string.Empty;
+        AnsiConsole.MarkupLine($"[grey]── Build comparison{Markup.Escape(modLabel)}[/]");
+
+        var rows = BuildTierRows(pokemon.Name, queriedStat, teamEntries, useMax: false)
+            .OrderByDescending(r => r.Stat).ToList();
+        RenderTierTable(rows);
         AnsiConsole.WriteLine();
     }
 

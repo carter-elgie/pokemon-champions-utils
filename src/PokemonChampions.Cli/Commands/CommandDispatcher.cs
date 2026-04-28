@@ -30,7 +30,9 @@ public class CommandDispatcher(
           [bold]update[/] [[--online]]            Refresh local data from Pokemon Showdown
           [bold]config[/] [[options]]             Show or change settings (--online/--offline/--format <id>)
           [bold]<name>[/]                         Look up a Pokemon, move, item, or ability
-          [bold]<pokemon> <stat>[/]               Show stat range for a Pokemon (e.g. "incineroar speed")
+          [bold]<pokemon> <stat>[/]               Stat tier list vs. team (e.g. "incineroar speed")
+          [bold]<pokemon> <stat> [[nature]] [[pts]][/]   Build comparison (e.g. "incineroar speed jolly 16")
+          [bold]                 [[modifiers...]][/]      Modifiers: scarf, tailwind, para, +N, -N
           [bold]alias <text> <target>[/]          Create an alias  (e.g. alias mcy charizard-mega-y)
           [bold]alias remove <text>[/]            Remove an alias
           [bold]alias list[/]                     List all aliases
@@ -183,8 +185,12 @@ public class CommandDispatcher(
                 var pokemon = await ResolvePokemonAsync(pokemonTokens, ct);
                 if (pokemon is not null)
                 {
+                    var build = ParseBuildFromTokens(modifierTokens);
                     var modifiers = StatModifierSet.Parse(modifierTokens);
-                    await RenderStatTierAsync(pokemon, stat, modifiers, ct);
+                    if (build.HasAny)
+                        await RenderStatBuildAsync(pokemon, stat, build, modifiers, ct);
+                    else
+                        await RenderStatTierAsync(pokemon, stat, modifiers, ct);
                     return;
                 }
             }
@@ -251,36 +257,83 @@ public class CommandDispatcher(
 
     private async Task RenderStatTierAsync(Pokemon pokemon, StatName stat, StatModifierSet modifiers, CancellationToken ct)
     {
+        var entries = await GetTeamEntriesAsync(stat, ct);
+        PokemonRenderer.RenderStatTier(pokemon, stat, entries, modifiers);
+    }
+
+    private async Task RenderStatBuildAsync(
+        Pokemon pokemon, StatName stat, BuildSpec build, StatModifierSet modifiers, CancellationToken ct)
+    {
+        int baseStat = pokemon.BaseStats.Get(stat);
+        int evOrSp = build.EvOrSp ?? 0;
+        int rawEv = evOrSp <= AppConstants.MaxStatPointsPerStat ? evOrSp * 8 : evOrSp;
+        double natureMult = stat != StatName.Hp ? (build.Nature?.GetMultiplier(stat) ?? 1.0) : 1.0;
+        int unmodified = StatCalculator.Calculate(stat, baseStat, AppConstants.MaxIv, rawEv, natureMult);
+
+        var entries = await GetTeamEntriesAsync(stat, ct);
+        PokemonRenderer.RenderStatBuild(
+            pokemon, stat, modifiers.Apply(unmodified), unmodified, BuildLabelFor(build, stat), entries, modifiers);
+    }
+
+    private async Task<List<StatTierEntry>> GetTeamEntriesAsync(StatName stat, CancellationToken ct)
+    {
         var entries = new List<StatTierEntry>();
         var team = await teamService.GetActiveAsync(ct);
+        if (team is null) return entries;
 
-        if (team is not null)
+        foreach (var member in team.Members)
         {
-            foreach (var member in team.Members)
+            if (member.PokemonShowdownId is null) continue;
+            var species = await pokemonService.FindAsync(member.PokemonShowdownId, ct);
+            if (species is null) continue;
+
+            var range = StatCalculator.GetRange(species.BaseStats.Get(stat), stat);
+            int? actual = null;
+            if (member.Nature is not null)
             {
-                if (member.PokemonShowdownId is null) continue;
-                if (string.Equals(member.PokemonShowdownId, pokemon.ShowdownId, StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                var species = await pokemonService.FindAsync(member.PokemonShowdownId, ct);
-                if (species is null) continue;
-
-                var baseStat = species.BaseStats.Get(stat);
-                var range = StatCalculator.GetRange(baseStat, stat);
-
-                int? actual = null;
-                if (member.Nature is not null)
-                {
-                    var nature = Nature.TryGet(member.Nature) ?? new Nature("?", null, null);
-                    var computed = StatCalculator.Compute(species.BaseStats, member.StatPoints, member.Ivs, nature);
-                    actual = computed.Get(stat);
-                }
-
-                entries.Add(new StatTierEntry(member.DisplayName(species.Name), range.Min, range.Max, actual));
+                var nature = Nature.TryGet(member.Nature) ?? new Nature("?", null, null);
+                actual = StatCalculator.Compute(species.BaseStats, member.StatPoints, member.Ivs, nature).Get(stat);
             }
+
+            entries.Add(new StatTierEntry(member.DisplayName(species.Name), range.Min, range.Max, actual));
         }
 
-        PokemonRenderer.RenderStatTier(pokemon, stat, entries, modifiers);
+        return entries;
+    }
+
+    // ── Build parsing ─────────────────────────────────────────────────────────
+
+    private record BuildSpec(Nature? Nature, int? EvOrSp)
+    {
+        public bool HasAny => Nature is not null || EvOrSp.HasValue;
+    }
+
+    private static BuildSpec ParseBuildFromTokens(string[] tokens)
+    {
+        Nature? nature = null;
+        int? evOrSp = null;
+        foreach (var raw in tokens)
+        {
+            var t = raw.ToLowerInvariant().Trim();
+            if (nature is null && Nature.TryGet(t) is { } n) { nature = n; continue; }
+            if (evOrSp is null && !t.StartsWith('+') && !t.StartsWith('-')
+                && int.TryParse(t, out int val) && val >= 0)
+                evOrSp = val;
+        }
+        return new BuildSpec(nature, evOrSp);
+    }
+
+    private static string BuildLabelFor(BuildSpec build, StatName stat)
+    {
+        var parts = new List<string>();
+        if (build.Nature is not null && stat != StatName.Hp)
+            parts.Add(build.Nature.Name);
+        if (build.EvOrSp.HasValue)
+        {
+            int v = build.EvOrSp.Value;
+            parts.Add(v <= AppConstants.MaxStatPointsPerStat ? $"{v} SP" : $"{v} EVs");
+        }
+        return parts.Count > 0 ? string.Join(", ", parts) : "Neutral";
     }
 
     // ── Disambiguation ────────────────────────────────────────────────────────

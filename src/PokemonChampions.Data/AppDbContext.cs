@@ -15,6 +15,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<UsageItemEntity> UsageItems => Set<UsageItemEntity>();
     public DbSet<UsageAbilityEntity> UsageAbilities => Set<UsageAbilityEntity>();
     public DbSet<UsageSpreadEntity> UsageSpreads => Set<UsageSpreadEntity>();
+    public DbSet<UsageTeammateEntity> UsageTeammates => Set<UsageTeammateEntity>();
     public DbSet<TeamEntity> Teams => Set<TeamEntity>();
     public DbSet<TeamMemberEntity> TeamMembers => Set<TeamMemberEntity>();
     public DbSet<AliasEntity> Aliases => Set<AliasEntity>();
@@ -64,6 +65,12 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
         modelBuilder.Entity<UsageStatsEntity>()
             .HasIndex(u => new { u.PokemonId, u.FormatShowdownId, u.StatsMonth, u.Source })
             .IsUnique();
+
+        // UsageTeammate: indexes for lookup and cascade
+        modelBuilder.Entity<UsageTeammateEntity>()
+            .HasIndex(t => t.StatsId);
+        modelBuilder.Entity<UsageTeammateEntity>()
+            .HasIndex(t => t.TeammateId);
 
         // Team: unique name (case-insensitive)
         modelBuilder.Entity<TeamEntity>()

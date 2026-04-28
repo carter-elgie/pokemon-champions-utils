@@ -43,10 +43,10 @@ public class MunchStatsSource(HttpClient http)
     }
 
     /// <summary>
-    /// Fetches top move usage for a specific Pokemon.
-    /// Returns null if the Pokemon is not found on MunchStats for this format.
+    /// Fetches move and teammate usage for a specific Pokemon from a single page load.
+    /// Returns null if the Pokemon page cannot be retrieved.
     /// </summary>
-    public async Task<PokemonMoveResult?> GetPokemonMovesAsync(
+    public async Task<PokemonDetailResult?> GetPokemonDetailAsync(
         string munchStatsFormatId, string pokemonDisplayName, CancellationToken ct)
     {
         var encodedName = Uri.EscapeDataString(pokemonDisplayName);
@@ -61,7 +61,7 @@ public class MunchStatsSource(HttpClient http)
             return null;
         }
 
-        return ParsePokemonMoves(html);
+        return ParsePokemonDetail(html);
     }
 
     // ── Parsing ────────────────────────────────────────────────────────────────
@@ -82,20 +82,23 @@ public class MunchStatsSource(HttpClient http)
         return new FormatUsageResult(pokemon, month);
     }
 
-    private PokemonMoveResult ParsePokemonMoves(string html)
+    private PokemonDetailResult ParsePokemonDetail(string html)
     {
         var month = ParseMonth(html);
         var sections = SplitBySections(html);
         var moves = new List<(string Name, double Pct)>();
+        var teammates = new List<(string Name, double Pct)>();
 
         foreach (var (title, content) in sections)
         {
-            if (!title.Trim().Equals("Moves", StringComparison.OrdinalIgnoreCase)) continue;
-            moves.AddRange(ExtractPairs(content));
-            break;
+            var t = title.Trim();
+            if (t.Equals("Moves", StringComparison.OrdinalIgnoreCase))
+                moves.AddRange(ExtractPairs(content));
+            else if (t.Equals("Teammates", StringComparison.OrdinalIgnoreCase))
+                teammates.AddRange(ExtractPairs(content));
         }
 
-        return new PokemonMoveResult(moves, month);
+        return new PokemonDetailResult(moves, teammates, month);
     }
 
     private string? ParseMonth(string html)
@@ -137,6 +140,7 @@ public record FormatUsageResult(
     IReadOnlyList<(string DisplayName, double UsagePct)> Pokemon,
     string? Month);
 
-public record PokemonMoveResult(
+public record PokemonDetailResult(
     IReadOnlyList<(string MoveName, double UsagePct)> Moves,
+    IReadOnlyList<(string TeammateDisplayName, double UsagePct)> Teammates,
     string? Month);

@@ -34,6 +34,7 @@ public class UsageStatsEntity
     public ICollection<UsageItemEntity> Items { get; set; } = [];
     public ICollection<UsageAbilityEntity> Abilities { get; set; } = [];
     public ICollection<UsageSpreadEntity> Spreads { get; set; } = [];
+    public ICollection<UsageTeammateEntity> Teammates { get; set; } = [];
 }
 
 [Table("UsageMove")]
@@ -85,6 +86,24 @@ public class UsageAbilityEntity
     public int AbilityId { get; set; }
     [ForeignKey(nameof(AbilityId))]
     public AbilityEntity Ability { get; set; } = null!;
+
+    public double UsagePct { get; set; }
+    public int Rank { get; set; }
+}
+
+[Table("UsageTeammate")]
+public class UsageTeammateEntity
+{
+    [Key]
+    public int Id { get; set; }
+
+    public int StatsId { get; set; }
+    [ForeignKey(nameof(StatsId))]
+    public UsageStatsEntity Stats { get; set; } = null!;
+
+    public int TeammateId { get; set; }
+    [ForeignKey(nameof(TeammateId))]
+    public PokemonEntity Teammate { get; set; } = null!;
 
     public double UsagePct { get; set; }
     public int Rank { get; set; }

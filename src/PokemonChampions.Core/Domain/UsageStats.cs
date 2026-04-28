@@ -13,6 +13,7 @@ public class PokemonUsageStats
     public IReadOnlyList<UsageEntry> Items { get; init; } = [];
     public IReadOnlyList<UsageEntry> Abilities { get; init; } = [];
     public IReadOnlyList<SpreadUsageEntry> Spreads { get; init; } = [];
+    public IReadOnlyList<UsageEntry> Teammates { get; init; } = [];
 
     /// <summary>The top-ranked spread, or null if no spread data is available.</summary>
     public SpreadUsageEntry? TopSpread => Spreads.Count > 0 ? Spreads[0] : null;

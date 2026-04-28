@@ -15,6 +15,7 @@ A cross-platform CLI tool for competitive Pokemon Champions players. Look up Pok
   - [Pokemon lookup](#pokemon-lookup)
   - [Move / Item / Ability lookup](#move--item--ability-lookup)
   - [Stat lookup](#stat-lookup)
+    - [Build-specific comparison](#build-specific-comparison)
   - [Damage calc](#damage-calc)
   - [Teams](#teams)
   - [Aliases](#aliases)
@@ -103,7 +104,12 @@ Refreshes local data from Pokemon Showdown. With `--online`, also fetches live b
 
 ### Pokemon lookup
 
-Typing a Pokemon's name shows its base stats, min/max stats at level 50, and available abilities. If you're in online mode and usage data is available, the top 4 moves, most common item, and most common EV spread are also shown.
+Typing a Pokemon's name shows its base stats, min/max stats at level 50, and available abilities. If you're in online mode and usage data is available from MunchStats, the following are also shown:
+
+- **Moves**: top 5 most-used, with usage percentages
+- **Teammates**: top 3 most common partners, with usage percentages
+
+> **Note:** MunchStats does not currently publish item or ability usage data for the Champions format. Those sections will be added when a data source becomes available.
 
 ```
 incineroar
@@ -113,7 +119,7 @@ mega charizard y        # spaces work too — no quotes or hyphens required
 
 If the Pokemon is on your current team, an indicator will highlight the team member variant and show its actual stats, moveset, item, and ability.
 
-For full detailed usage stats (all moves/items ranked by frequency):
+For full detailed usage stats (all moves and teammates ranked by frequency):
 
 ```
 incineroar --detailed
@@ -148,7 +154,7 @@ If a move, item, ability, or Pokemon is not legal in the current format, the too
 
 ### Stat lookup
 
-Shows base, minimum, and maximum values for a specific stat, plus two sorted tier lists (one for min, one for max) placing the searched Pokemon alongside your current team.
+Shows base, minimum, and maximum values for a specific stat, plus two sorted tier lists — one uninvested, one fully invested — placing the searched Pokemon alongside your current team.
 
 ```
 incineroar speed
@@ -156,14 +162,36 @@ incineroar hp
 flutter-mane special attack    # flexible stat name recognition
 ```
 
-Modifiers can be appended:
+Modifiers can be appended to either form of the stat lookup:
 
 ```
 incineroar speed scarf         # with Choice Scarf
 incineroar speed +1            # with a +1 speed boost
 incineroar speed tailwind      # under Tailwind
-incineroar speed chlorophyll sun   # Chlorophyll in sun
 ```
+
+#### Build-specific comparison
+
+Specify a nature, a stat point / EV count, or both to calculate a particular build and show a single sorted list instead of two:
+
+```
+incineroar speed jolly          # Jolly nature, 0 investment
+incineroar speed jolly 16       # Jolly + 16 stat points (Pokemon Champions)
+incineroar speed timid 252      # Timid + 252 EVs (standard Gen 9; values > 32 treated as EVs)
+incineroar speed 32             # max stat points, neutral nature
+```
+
+- Values ≤ 32 are treated as **stat points** (Pokemon Champions, 1 SP = 8 EVs in the formula).
+- Values > 32 are treated as raw **EVs** (standard Gen 9).
+- Nature is assumed **neutral** for the queried stat if omitted; nature is always ignored for HP.
+- Modifiers work the same way:
+
+```
+incineroar speed jolly 16 scarf    # Jolly 16 SP + Choice Scarf
+incineroar speed timid +2          # Timid, uninvested, +2 boost
+```
+
+All six current team members appear in the comparison list (showing their actual invested stats when a build is recorded, or uninvested estimates otherwise).
 
 ---
 

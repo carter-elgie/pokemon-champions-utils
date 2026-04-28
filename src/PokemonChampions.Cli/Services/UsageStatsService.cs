@@ -11,8 +11,8 @@ namespace PokemonChampions.Cli.Services;
 /// <summary>
 /// Implements <see cref="IUsageStatsService"/>.
 /// In offline mode: returns only data already cached in the local DB.
-/// In online mode: lazily fetches per-Pokemon move data from MunchStats on first access,
-/// then serves from the DB cache (refreshed if older than <see cref="MoveCacheTtlDays"/> days).
+/// In online mode: lazily fetches per-Pokemon detail (moves + teammates) from MunchStats on first
+/// access, then serves from the DB cache (refreshed if older than <see cref="DetailCacheTtlDays"/> days).
 /// </summary>
 public class UsageStatsService(
     AppDbContext db,
@@ -20,7 +20,7 @@ public class UsageStatsService(
     FormatRegistry formatRegistry,
     UsageStatsImporter importer) : IUsageStatsService
 {
-    private const int MoveCacheTtlDays = 7;
+    private const int DetailCacheTtlDays = 7;
 
     public bool IsOnlineModeEnabled { get; private set; }
 
@@ -41,21 +41,20 @@ public class UsageStatsService(
                         u.Source == "munchstats")
             .FirstOrDefaultAsync(ct);
 
-        // In online mode, lazily populate move data if missing or stale
+        // In online mode, lazily fetch moves + teammates if missing or stale.
+        // Staleness is keyed on teammate presence so existing caches (moves only) are refreshed.
         if (IsOnlineModeEnabled && statsEntity is not null)
         {
-            bool movesStale = !await db.UsageMoves.AnyAsync(m => m.StatsId == statsEntity.Id, ct)
-                              || statsEntity.FetchedAt < DateTime.UtcNow.AddDays(-MoveCacheTtlDays);
+            bool detailStale = !await db.UsageTeammates.AnyAsync(t => t.StatsId == statsEntity.Id, ct)
+                               || statsEntity.FetchedAt < DateTime.UtcNow.AddDays(-DetailCacheTtlDays);
 
-            if (movesStale)
+            if (detailStale)
             {
                 var format = formatRegistry.TryGet(formatShowdownId);
-                var munchFormatId = format?.MunchStatsFormatId;
-                if (munchFormatId is not null)
-                    await importer.ImportPokemonMovesAsync(
+                if (format?.MunchStatsFormatId is { } munchFormatId)
+                    await importer.ImportPokemonDetailAsync(
                         statsEntity.Id, munchFormatId, pokemonEntity.Name, ct);
 
-                // Re-query to pick up newly inserted moves
                 statsEntity = await db.UsageStats
                     .Where(u => u.Id == statsEntity.Id)
                     .FirstOrDefaultAsync(ct);
@@ -70,6 +69,12 @@ public class UsageStatsService(
             .OrderBy(m => m.Rank)
             .ToListAsync(ct);
 
+        var teammates = await db.UsageTeammates
+            .Where(t => t.StatsId == statsEntity.Id)
+            .Include(t => t.Teammate)
+            .OrderBy(t => t.Rank)
+            .ToListAsync(ct);
+
         return new PokemonUsageStats
         {
             PokemonShowdownId = pokemonShowdownId,
@@ -78,7 +83,9 @@ public class UsageStatsService(
             StatsMonth        = statsEntity.StatsMonth,
             Source            = statsEntity.Source,
             Moves = moves.Select((m, i) => new UsageEntry(
-                m.Move.Name, m.Move.ShowdownId, m.UsagePct, i + 1)).ToList()
+                m.Move.Name, m.Move.ShowdownId, m.UsagePct, i + 1)).ToList(),
+            Teammates = teammates.Select((t, i) => new UsageEntry(
+                t.Teammate.Name, t.Teammate.ShowdownId, t.UsagePct, i + 1)).ToList()
         };
     }
 

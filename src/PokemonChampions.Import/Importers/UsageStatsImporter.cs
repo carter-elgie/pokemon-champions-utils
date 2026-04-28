@@ -33,7 +33,7 @@ public class UsageStatsImporter(AppDbContext db, MunchStatsSource munchStats)
             var pokemonEntity = await db.Pokemon
                 .FirstOrDefaultAsync(p => p.NormalizedId == normalized, ct);
             if (pokemonEntity is null) continue;
-            if (!seenIds.Add(pokemonEntity.Id)) continue; // skip if two names resolve to same Pokemon
+            if (!seenIds.Add(pokemonEntity.Id)) continue;
 
             var existing = await db.UsageStats.FirstOrDefaultAsync(u =>
                 u.PokemonId == pokemonEntity.Id &&
@@ -44,17 +44,17 @@ public class UsageStatsImporter(AppDbContext db, MunchStatsSource munchStats)
             {
                 db.UsageStats.Add(new UsageStatsEntity
                 {
-                    PokemonId       = pokemonEntity.Id,
+                    PokemonId        = pokemonEntity.Id,
                     FormatShowdownId = appFormatId,
-                    UsagePct        = usagePct,
-                    StatsMonth      = month,
-                    Source          = "munchstats",
-                    FetchedAt       = now
+                    UsagePct         = usagePct,
+                    StatsMonth       = month,
+                    Source           = "munchstats",
+                    FetchedAt        = now
                 });
             }
             else
             {
-                existing.UsagePct  = usagePct;
+                existing.UsagePct   = usagePct;
                 existing.StatsMonth = month;
                 existing.FetchedAt  = now;
             }
@@ -67,24 +67,24 @@ public class UsageStatsImporter(AppDbContext db, MunchStatsSource munchStats)
     }
 
     /// <summary>
-    /// Fetches and caches move usage data for a single Pokemon.
-    /// Replaces any existing move rows for this stats record.
-    /// No-ops if the Pokemon cannot be found on MunchStats.
+    /// Fetches and caches per-Pokemon detail (moves and teammates) from MunchStats.
+    /// Replaces all existing move and teammate rows for this stats record.
+    /// No-ops if the Pokemon page cannot be retrieved.
     /// </summary>
-    public async Task ImportPokemonMovesAsync(
+    public async Task ImportPokemonDetailAsync(
         int usageStatsId,
         string munchStatsFormatId,
         string pokemonDisplayName,
         CancellationToken ct)
     {
-        var result = await munchStats.GetPokemonMovesAsync(munchStatsFormatId, pokemonDisplayName, ct);
-        if (result is null || result.Moves.Count == 0) return;
+        var result = await munchStats.GetPokemonDetailAsync(munchStatsFormatId, pokemonDisplayName, ct);
+        if (result is null) return;
 
-        // Remove stale move rows
-        var old = await db.UsageMoves.Where(m => m.StatsId == usageStatsId).ToListAsync(ct);
-        db.UsageMoves.RemoveRange(old);
+        // ── Moves ──────────────────────────────────────────────────────────────
+        var oldMoves = await db.UsageMoves.Where(m => m.StatsId == usageStatsId).ToListAsync(ct);
+        db.UsageMoves.RemoveRange(oldMoves);
 
-        int rank = 1;
+        int moveRank = 1;
         foreach (var (moveName, movePct) in result.Moves)
         {
             var normalized = moveName.ToNormalizedId();
@@ -96,11 +96,33 @@ public class UsageStatsImporter(AppDbContext db, MunchStatsSource munchStats)
                 StatsId  = usageStatsId,
                 MoveId   = moveEntity.Id,
                 UsagePct = movePct,
-                Rank     = rank++
+                Rank     = moveRank++
             });
         }
 
-        // Update FetchedAt so we know moves have been loaded
+        // ── Teammates ──────────────────────────────────────────────────────────
+        var oldTeammates = await db.UsageTeammates.Where(t => t.StatsId == usageStatsId).ToListAsync(ct);
+        db.UsageTeammates.RemoveRange(oldTeammates);
+
+        int tmRank = 1;
+        var seenTeammates = new HashSet<int>();
+        foreach (var (tmName, tmPct) in result.Teammates)
+        {
+            var normalized = tmName.ToNormalizedId();
+            var tmEntity = await db.Pokemon.FirstOrDefaultAsync(p => p.NormalizedId == normalized, ct);
+            if (tmEntity is null) continue;
+            if (!seenTeammates.Add(tmEntity.Id)) continue;
+
+            db.UsageTeammates.Add(new UsageTeammateEntity
+            {
+                StatsId     = usageStatsId,
+                TeammateId  = tmEntity.Id,
+                UsagePct    = tmPct,
+                Rank        = tmRank++
+            });
+        }
+
+        // ── Update timestamp ───────────────────────────────────────────────────
         var statsEntity = await db.UsageStats.FindAsync([usageStatsId], ct);
         if (statsEntity is not null)
         {
