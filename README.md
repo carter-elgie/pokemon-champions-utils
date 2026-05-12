@@ -217,17 +217,96 @@ flutter-mane moonblast > incineroar --weather sun
 sneasler close-combat > incineroar --screens
 ```
 
-Supported `--weather` values: `sun`, `rain`, `sand`, `snow` (or `hail`). `--screens` applies Reflect for Physical moves and Light Screen for Special moves.
+Supported `--weather` values: `sun`, `rain`, `sand`, `snow` (or `hail`). `--terrain` values: `electric`, `grassy`, `psychic`, `misty`. `--screens` applies Reflect for Physical moves and Light Screen for Special moves (suppressed on critical hits). `--aurora-veil` applies to all move categories (also suppressed on critical hits).
+
+**Battle modifier flags** — append any combination to a damage calc:
+
+*Field conditions (apply to Power calculation):*
+
+| Flag | Effect |
+|---|---|
+| `--gravity` | Gravity is in effect (boosts Grav Apple ×1.5; all Pokemon grounded for terrain purposes) |
+
+*Attacker status conditions (apply to Power calculation):*
+
+| Flag | Effect |
+|---|---|
+| `--burned` | Attacker is burned (Facade ×2 power; physical damage ×0.5 unless Guts or Facade) |
+| `--paralyzed` | Attacker is paralyzed (Facade ×2 power) |
+| `--poisoned` | Attacker is poisoned (Facade ×2 power) |
+
+*Power modifiers (computed before the damage formula, chained with 4096-based rounding):*
+
+| Flag | Effect |
+|---|---|
+| `--helping-hand` | Ally used Helping Hand this turn (move power ×1.5) |
+| `--charge` | Attacker is under the Charge effect; Electric moves ×2 power |
+| `--analytic` | Attacker has Analytic and the target moved first this turn (power ×1.3) |
+| `--sheer-force` | Attacker has Sheer Force and the move has a secondary effect (power ×1.3) |
+| `--ally-battery` | Ally has Battery; special moves ×1.3 power |
+| `--ally-power-spot` | Ally has Power Spot; all moves ×1.3 power |
+| `--ally-steely-spirit` | Ally has Steely Spirit; Steel-type moves ×1.5 power |
+
+*Damage modifiers (applied after the formula):*
+
+| Flag | Effect |
+|---|---|
+| `--crit` | Critical hit (damage ×1.5; screens and Aurora Veil suppressed) |
+| `--parental-bond` | Second hit of Parental Bond (base damage ×0.25) |
+| `--glaive-rush` | Defender used Glaive Rush last turn (damage received ×2) |
+| `--friend-guard` | Ally has Friend Guard (damage received ×0.75) |
+| `--aurora-veil` | Aurora Veil on defender's side (damage ×0.5; suppressed on crits) |
+| `--metronome N` | Attacker holds Metronome item; N = consecutive turns using same move (×1.2 at N=1, up to ×2.0 at N=5+) |
+
+Examples:
+
+```
+sneasler close-combat > incineroar --crit --helping-hand
+flutter-mane moonblast > incineroar --weather sun --screens
+incineroar < sneasler close-combat --burned
+dragonite extreme-speed > incineroar --friend-guard
+ninetales dazzlinggleam > incineroar --terrain psychic
+```
 
 **How stats are resolved:**
 
 - If the attacker is on your active team, their actual nature, stat points, IVs, item, and ability are used automatically.
 - If not, damage is shown at maximum offensive investment.
-- If the defender is on your active team, their actual build is used. Otherwise two scenarios are shown: minimum bulk (0 EVs, hindering nature) and maximum bulk (32 SP, boosting nature).
+- If the defender is on your active team, their actual build and ability are used automatically. Otherwise two scenarios are shown: minimum bulk (0 EVs, hindering nature) and maximum bulk (32 SP, boosting nature).
 
-**Attacker ability bonuses applied automatically** (when the team member's ability matches): Adaptability (STAB ×2), Technician (BP ≤ 60 → ×1.5), Strong Jaw (bite moves ×1.5), Iron Fist (punch moves ×1.2), Tough Claws (contact moves ×1.3), Punk Rock (sound moves ×1.3).
+**Attacker ability bonuses applied automatically** (when the team member's ability matches):
 
-**Item bonuses applied automatically**: Choice Band (physical ×1.5), Choice Specs (special ×1.5), Life Orb (damage ×1.3).
+| Ability | Effect |
+|---|---|
+| Adaptability | STAB ×2 instead of ×1.5 |
+| Technician | Moves with ≤60 base power get ×1.5 power |
+| Strong Jaw | Biting moves ×1.5 power |
+| Iron Fist | Punching moves ×1.2 power |
+| Tough Claws | Contact moves ×1.3 power |
+| Punk Rock | Sound moves ×1.3 power |
+| Mega Launcher | Pulse moves ×1.5 power |
+| Sharpness | Slicing moves ×1.5 power |
+| Analytic | Power ×1.3 when moving last (use `--analytic`) |
+| Sand Force | Ground/Rock/Steel ×1.3 power in sandstorm |
+| Sheer Force | ×1.3 power for moves with secondary effects (use `--sheer-force`) |
+| Steely Spirit | Steel moves ×1.5 power (attacker's own Steely Spirit; use `--ally-steely-spirit` for ally's) |
+| Guts | Attack ×1.5 when statused; burn penalty negated |
+| Neuroforce | Super-effective damage ×1.25 |
+| Sniper | Critical hit damage ×1.5 extra (stacks with base crit boost) |
+| Tinted Lens | Not-very-effective damage ×2 |
+
+**Defender ability bonuses applied automatically** (when the defender is a known team member):
+
+| Ability | Effect |
+|---|---|
+| Multiscale / Shadow Shield | Damage ×0.5 when at full HP |
+| Fluffy | Contact moves ×0.5; Fire-type moves ×2 |
+| Punk Rock | Sound moves ×0.5 |
+| Ice Scales | Special moves ×0.5 |
+| Filter / Solid Rock / Prism Armor | Super-effective moves ×0.75 |
+| Dry Skin | Fire-type move power ×1.25 (auto-applied from Power chain) |
+
+**Item bonuses applied automatically**: Choice Band (physical ×1.5 Atk), Choice Specs (special ×1.5 SpA), Life Orb (damage ×1.3), Expert Belt (super-effective damage ×1.2), Muscle Band (physical power ×1.1), Wise Glasses (special power ×1.1), Punching Glove (punch move power ×1.1), type-enhancing items and Plates (matching-type power ×1.2), Metronome item (use `--metronome N`).
 
 ---
 
