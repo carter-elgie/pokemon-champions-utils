@@ -1,8 +1,6 @@
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
-using PokemonChampions.Core.Formats;
-using PokemonChampions.Core.Formats.Regulations;
 using PokemonChampions.Data;
 using PokemonChampions.Data.Entities;
 using PokemonChampions.Import.Parsers;
@@ -14,7 +12,7 @@ namespace PokemonChampions.Import.Importers;
 /// Downloads and imports the static data files from Pokemon Showdown into the local database.
 /// Covers Pokemon (pokedex), moves, items, abilities, and learnsets.
 /// </summary>
-public class StaticDataImporter(AppDbContext db, HttpClient http, ILogger<StaticDataImporter> logger, FormatRegistry formatRegistry)
+public class StaticDataImporter(AppDbContext db, HttpClient http, ILogger<StaticDataImporter> logger)
 {
     public async Task ImportAllAsync(IProgress<string>? progress = null, CancellationToken ct = default)
     {
@@ -33,7 +31,6 @@ public class StaticDataImporter(AppDbContext db, HttpClient http, ILogger<Static
         progress?.Report("Fetching learnset data...");
         await ImportLearnsetsAsync(ct);
 
-        await SeedFormatDexListsAsync(ct);
         progress?.Report("Done.");
     }
 
@@ -281,20 +278,34 @@ public class StaticDataImporter(AppDbContext db, HttpClient http, ILogger<Static
 
             if (!pokemonProp.Value.TryGetProperty("learnset", out var learnset)) continue;
 
+            // Deduplicate within each pokemon to avoid hitting the unique index constraint.
+            var seen = new HashSet<(int moveId, int gen, string method)>();
+
             foreach (var moveProp in learnset.EnumerateObject())
             {
                 var moveId = moveProp.Name;
                 if (!moveMap.TryGetValue(moveId, out int dbMoveId)) continue;
 
-                // Each move entry is an array of strings like ["9L1", "9M", "8E"]
-                // Format: generation number + method letter (L/M/E/T/S)
+                // Each entry is an array of strings like ["9L1", "9M", "8E", "8S0"].
+                // Parse by consuming leading digits as generation, then take next char as method.
+                // "9M" → gen=9, method="M"
+                // "9L1" → gen=9, method="L"  (level-up; suffix after method char is ignored)
+                // "8S0" → gen=8, method="S"  (event; suffix is event index)
                 foreach (var entry in moveProp.Value.EnumerateArray())
                 {
                     var entryStr = entry.GetString();
                     if (entryStr == null || entryStr.Length < 2) continue;
 
-                    if (!int.TryParse(entryStr[..^1], out int gen)) continue;
-                    var method = entryStr[^1..];
+                    int methodStart = 0;
+                    while (methodStart < entryStr.Length && char.IsDigit(entryStr[methodStart]))
+                        methodStart++;
+
+                    if (methodStart == 0 || methodStart >= entryStr.Length) continue;
+                    if (!int.TryParse(entryStr[..methodStart], out int gen)) continue;
+
+                    var method = entryStr[methodStart].ToString();
+
+                    if (!seen.Add((dbMoveId, gen, method))) continue;
 
                     batch.Add(new LearnsetEntity
                     {
@@ -323,18 +334,4 @@ public class StaticDataImporter(AppDbContext db, HttpClient http, ILogger<Static
         logger.LogInformation("Learnset import complete.");
     }
 
-    private async Task SeedFormatDexListsAsync(CancellationToken ct)
-    {
-        var paldeaIds = await db.Pokemon
-            .Where(p => p.IsCurrentGenStandard)
-            .Select(p => p.ShowdownId)
-            .ToListAsync(ct);
-
-        if (paldeaIds.Count == 0) return;
-
-        var paldeaSet = new HashSet<string>(paldeaIds, StringComparer.OrdinalIgnoreCase);
-        var regMA = formatRegistry.TryGet("gen9championsregma") as RegulationMA;
-        regMA?.SetPaldeaDex(paldeaSet);
-        logger.LogInformation("Seeded Paldea dex allowlist with {Count} entries.", paldeaSet.Count);
-    }
 }

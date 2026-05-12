@@ -8,14 +8,6 @@ namespace PokemonChampions.Core.Formats.Regulations;
 /// </summary>
 public sealed class RegulationMA : IFormatDefinition
 {
-    // Seeded from the database on first access; populated by the update command.
-    private IReadOnlySet<string>? _paldeaDex;
-
-    public RegulationMA(IReadOnlySet<string>? paldeaDexIds = null)
-    {
-        _paldeaDex = paldeaDexIds;
-    }
-
     public string ShowdownId => "gen9championsregma";
     public string DisplayName => "[Champions] VGC 2026 Reg M-A";
     public string? MunchStatsFormatId => "gen9championsvgc2026regma";
@@ -103,18 +95,10 @@ public sealed class RegulationMA : IFormatDefinition
         "tauros",
     };
 
-    public void SetPaldeaDex(IReadOnlySet<string> paldeaDexIds) => _paldeaDex = paldeaDexIds;
-
     public bool IsPokemonAllowed(string pokemonShowdownId)
     {
         if (ExplicitlyAllowed.Contains(pokemonShowdownId)) return true;
         if (BannedShowdownIds.Contains(pokemonShowdownId)) return false;
-
-        // If we have the DB-seeded dex list, use it for accurate checks.
-        if (_paldeaDex != null)
-            return _paldeaDex.Contains(pokemonShowdownId.ToLowerInvariant());
-
-        // Fallback: allow if not explicitly banned. The update command seeds the dex list.
         return true;
     }
 

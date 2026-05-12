@@ -3,8 +3,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using PokemonChampions.Cli;
 using PokemonChampions.Cli.Commands;
-using PokemonChampions.Core.Formats;
-using PokemonChampions.Core.Formats.Regulations;
 using PokemonChampions.Data;
 using Spectre.Console;
 
@@ -14,25 +12,11 @@ var services = new ServiceCollection()
     .AddPokemonChampions()
     .BuildServiceProvider();
 
-// ── Ensure DB schema is up to date, then seed format dex lists ───────────────
+// ── Ensure DB schema is up to date ───────────────────────────────────────────
 using (var startupScope = services.CreateScope())
 {
     var db = startupScope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.MigrateAsync();
-
-    // Seed RegulationMA's Paldea dex allowlist from stored IsCurrentGenStandard flags.
-    // Runs every launch so the check works after restarts (not just after update).
-    var paldeaIds = await db.Pokemon
-        .Where(p => p.IsCurrentGenStandard)
-        .Select(p => p.ShowdownId)
-        .ToListAsync();
-
-    if (paldeaIds.Count > 0)
-    {
-        var registry = services.GetRequiredService<FormatRegistry>();
-        var regMA = registry.TryGet("gen9championsregma") as RegulationMA;
-        regMA?.SetPaldeaDex(new HashSet<string>(paldeaIds, StringComparer.OrdinalIgnoreCase));
-    }
 }
 
 using var cts = new CancellationTokenSource();
