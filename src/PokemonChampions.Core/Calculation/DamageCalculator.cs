@@ -61,7 +61,8 @@ public record DamageResult(
     double TypeEffectiveness,
     bool IsStab,
     int EffectiveAttack,
-    int EffectiveDefense)
+    int EffectiveDefense,
+    PokemonType EffectiveMoveType)
 {
     public double MinPct => DefenderHp > 0 ? MinDamage * 100.0 / DefenderHp : 0;
     public double MaxPct => DefenderHp > 0 ? MaxDamage * 100.0 / DefenderHp : 0;
@@ -84,28 +85,37 @@ public static class DamageCalculator
         bool isPhysical = move.Category == MoveCategory.Physical;
         bool isSpecial  = move.Category == MoveCategory.Special;
 
-        if (move.Power is null or 0 || move.Category == MoveCategory.Status)
-        {
-            return new DamageResult(0, 0, ctx.DefenderStats.Hp,
-                TypeChart.GetCombinedEffectiveness(move.Type, ctx.DefenderSpecies.Type1, ctx.DefenderSpecies.Type2),
-                IsStab: false, 0, 0);
-        }
-
         string? abilityId    = NormalizeId(ctx.AttackerAbility);
         string? itemId       = NormalizeId(ctx.AttackerItem);
         string? defAbilityId = NormalizeId(ctx.DefenderAbility);
         string  moveNormId   = NormalizeId(move.ShowdownId) ?? "";
 
+        // ── Effective move type (may differ from move.Type due to abilities/forms) ──
+        PokemonType effectiveType = GetEffectiveMoveType(
+            move.Type, moveNormId, abilityId,
+            NormalizeId(ctx.AttackerSpecies.ShowdownId) ?? "",
+            ctx.Battle.Weather);
+
+        if (move.Power is null or 0 || move.Category == MoveCategory.Status)
+        {
+            return new DamageResult(0, 0, ctx.DefenderStats.Hp,
+                TypeChart.GetCombinedEffectiveness(effectiveType, ctx.DefenderSpecies.Type1, ctx.DefenderSpecies.Type2),
+                IsStab: false, 0, 0, effectiveType);
+        }
+
         // ── Power (4096-based chain: PokeRound after each step, floor at end) ──
         int power = ComputePower(move.Power.Value, ctx, move, moveNormId,
-                                 abilityId, itemId, defAbilityId, isPhysical, isSpecial);
+                                 abilityId, itemId, defAbilityId, isPhysical, isSpecial, effectiveType);
 
         // ── Attack stat (stage + item + Guts) ────────────────────────────────
-        int baseAtk      = isPhysical ? ctx.AttackerStats.Atk : ctx.AttackerStats.SpA;
+        // Body Press uses the attacker's Defense stat as its attacking stat.
+        bool isBodyPress = moveNormId == "bodypress";
+        int baseAtk      = isBodyPress ? ctx.AttackerStats.Def
+                                       : (isPhysical ? ctx.AttackerStats.Atk : ctx.AttackerStats.SpA);
         int effectiveAtk = ApplyStage(baseAtk, ctx.AttackerStage);
 
         // Guts: ×1.5 Attack when burned/paralyzed/poisoned (stat boost, not Power chain)
-        if (isPhysical && abilityId is "guts" && (ctx.IsBurned || ctx.IsParalyzed || ctx.IsPoisoned))
+        if (isPhysical && !isBodyPress && abilityId is "guts" && (ctx.IsBurned || ctx.IsParalyzed || ctx.IsPoisoned))
             effectiveAtk = (int)Math.Floor(effectiveAtk * 1.5);
 
         if (isPhysical && itemId is "choiceband")   effectiveAtk = (int)Math.Floor(effectiveAtk * 1.5);
@@ -116,25 +126,25 @@ public static class DamageCalculator
         int effectiveDef = Math.Max(1, ApplyStage(baseDef, ctx.DefenderStage));
 
         // ── STAB ──────────────────────────────────────────────────────────────
-        bool isStab = move.Type == ctx.AttackerSpecies.Type1 ||
+        bool isStab = effectiveType == ctx.AttackerSpecies.Type1 ||
                       (ctx.AttackerSpecies.Type2.HasValue &&
                        ctx.AttackerSpecies.Type2 != PokemonType.None &&
-                       move.Type == ctx.AttackerSpecies.Type2.Value);
+                       effectiveType == ctx.AttackerSpecies.Type2.Value);
         bool isAdaptability = abilityId is "adaptability";
 
         // ── Type effectiveness ────────────────────────────────────────────────
         double typeEff = TypeChart.GetCombinedEffectiveness(
-            move.Type, ctx.DefenderSpecies.Type1, ctx.DefenderSpecies.Type2);
+            effectiveType, ctx.DefenderSpecies.Type1, ctx.DefenderSpecies.Type2);
         bool isSuperEffective   = typeEff > 1.0;
         bool isNotVeryEffective = typeEff > 0 && typeEff < 1.0;
 
-        // ── Weather multiplier ────────────────────────────────────────────────
+        // ── Weather multiplier (uses effective type) ──────────────────────────
         double weatherMult = ctx.Battle.Weather switch
         {
-            DamageWeather.Sun  when move.Type == PokemonType.Fire  => 1.5,
-            DamageWeather.Sun  when move.Type == PokemonType.Water => 0.5,
-            DamageWeather.Rain when move.Type == PokemonType.Water => 1.5,
-            DamageWeather.Rain when move.Type == PokemonType.Fire  => 0.5,
+            DamageWeather.Sun  when effectiveType == PokemonType.Fire  => 1.5,
+            DamageWeather.Sun  when effectiveType == PokemonType.Water => 0.5,
+            DamageWeather.Rain when effectiveType == PokemonType.Water => 1.5,
+            DamageWeather.Rain when effectiveType == PokemonType.Fire  => 0.5,
             _ => 1.0
         };
 
@@ -198,7 +208,54 @@ public static class DamageCalculator
 
         return new DamageResult(
             minDmg, maxDmg, ctx.DefenderStats.Hp,
-            typeEff, isStab, effectiveAtk, effectiveDef);
+            typeEff, isStab, effectiveAtk, effectiveDef, effectiveType);
+    }
+
+    /// <summary>
+    /// Returns the effective type of a move after applying ability transformations and
+    /// form-dependent type changes. This must be computed before STAB, type chart, and
+    /// weather multiplier lookups.
+    /// </summary>
+    public static PokemonType GetEffectiveMoveType(
+        PokemonType baseType, string moveNormId, string? abilityId,
+        string attackerShowdownId, DamageWeather weather)
+    {
+        // Normalize: all moves → Normal (no power boost from Normalize itself)
+        if (abilityId == "normalize") return PokemonType.Normal;
+
+        // Type-conversion abilities: Normal-type moves become another type (×1.2 in Power chain)
+        if (baseType == PokemonType.Normal)
+        {
+            var converted = abilityId switch
+            {
+                "pixilate"    => PokemonType.Fairy,
+                "refrigerate" => PokemonType.Ice,
+                "aerilate"    => PokemonType.Flying,
+                "galvanize"   => PokemonType.Electric,
+                _             => PokemonType.None
+            };
+            if (converted != PokemonType.None) return converted;
+        }
+
+        // Aura Wheel: Electric (Morpeko) or Dark (Morpeko-Hangry)
+        if (moveNormId == "aurawheel")
+            return attackerShowdownId == "morpekohangry" ? PokemonType.Dark : PokemonType.Electric;
+
+        // Weather Ball: type changes with weather, or always Fire with Mega Sol ability
+        if (moveNormId == "weatherball")
+        {
+            if (abilityId == "megasol") return PokemonType.Fire;
+            return weather switch
+            {
+                DamageWeather.Sun  => PokemonType.Fire,
+                DamageWeather.Rain => PokemonType.Water,
+                DamageWeather.Sand => PokemonType.Rock,
+                DamageWeather.Snow => PokemonType.Ice,
+                _                  => PokemonType.Normal
+            };
+        }
+
+        return baseType;
     }
 
     /// <summary>
@@ -208,7 +265,8 @@ public static class DamageCalculator
     /// Modifier order follows the Gen IX order on Bulbapedia's Power page.
     /// </summary>
     private static int ComputePower(int basePower, DamageContext ctx, Move move, string moveNormId,
-        string? abilityId, string? itemId, string? defAbilityId, bool isPhysical, bool isSpecial)
+        string? abilityId, string? itemId, string? defAbilityId, bool isPhysical, bool isSpecial,
+        PokemonType effectiveType)
     {
         bool isContact  = move.Flags.Contains("contact");
         bool isSound    = move.Flags.Contains("sound");
@@ -216,14 +274,16 @@ public static class DamageCalculator
         bool isBite     = move.Flags.Contains("bite");
         bool isPulse    = move.Flags.Contains("pulse");
         bool isSlicing  = move.Flags.Contains("slicing");
-        bool isSteel    = move.Type == PokemonType.Steel;
-        bool isElectric = move.Type == PokemonType.Electric;
-        bool isGrass    = move.Type == PokemonType.Grass;
-        bool isPsychic  = move.Type == PokemonType.Psychic;
-        bool isDragon   = move.Type == PokemonType.Dragon;
-        bool isGround   = move.Type == PokemonType.Ground;
-        bool isFire     = move.Type == PokemonType.Fire;
-        bool isNormal   = move.Type == PokemonType.Normal;
+
+        // Type booleans use the effective type (after ability/form transformations)
+        bool isSteel    = effectiveType == PokemonType.Steel;
+        bool isElectric = effectiveType == PokemonType.Electric;
+        bool isGrass    = effectiveType == PokemonType.Grass;
+        bool isPsychic  = effectiveType == PokemonType.Psychic;
+        bool isDragon   = effectiveType == PokemonType.Dragon;
+        bool isGround   = effectiveType == PokemonType.Ground;
+        bool isFire     = effectiveType == PokemonType.Fire;
+        bool isNormal   = effectiveType == PokemonType.Normal;
 
         long chain = 4096;
 
@@ -245,6 +305,17 @@ public static class DamageCalculator
         // Helping Hand: ×1.5 from ally (Power modifier, not "other")
         if (ctx.IsHelpingHand)
             chain = PokeRound(chain, 6144);
+
+        // Weather Ball: ×2 power when type changes (any weather, or Mega Sol ability)
+        if (moveNormId == "weatherball" &&
+            (ctx.Battle.Weather != DamageWeather.None || abilityId == "megasol"))
+            chain = PokeRound(chain, 8192);
+
+        // Type-conversion abilities (Pixilate/Refrigerate/Aerilate/Galvanize): ×1.2
+        // Only applies when the original move type is Normal (before conversion).
+        if (move.Type == PokemonType.Normal &&
+            abilityId is "pixilate" or "refrigerate" or "aerilate" or "galvanize")
+            chain = PokeRound(chain, 4915);
 
         // Terrain power halves (target assumed grounded)
         if (ctx.Battle.Terrain == DamageTerrain.Grassy &&
@@ -274,7 +345,7 @@ public static class DamageCalculator
 
         // Sand Force: ×5325/4096 for Ground/Rock/Steel in sandstorm
         if (abilityId is "sandforce" && ctx.Battle.Weather == DamageWeather.Sand &&
-            (isGround || move.Type == PokemonType.Rock || isSteel))
+            (isGround || effectiveType == PokemonType.Rock || isSteel))
             chain = PokeRound(chain, 5325);
 
         // Sheer Force: ×5325/4096 for moves with a secondary effect (user must flag)
@@ -330,11 +401,12 @@ public static class DamageCalculator
         if (isSpecial  && itemId is "wiseglasses") chain = PokeRound(chain, 4505);
 
         // Type-enhancing items (Plates, type items, Incenses): ×4915/4096 (~×1.2)
+        // Uses effective type so a Pixie Plate boosts a Pixilate-converted move.
         if (itemId is not null && TypeEnhancingItems.TryGetValue(itemId, out var enhancedType) &&
-            move.Type == enhancedType)
+            effectiveType == enhancedType)
             chain = PokeRound(chain, 4915);
 
-        // Normal Gem: ×5325/4096 (~×1.3) for Normal-type moves
+        // Normal Gem: ×5325/4096 (~×1.3) for Normal-type moves (effective type)
         if (itemId is "normalgem" && isNormal)
             chain = PokeRound(chain, 5325);
 

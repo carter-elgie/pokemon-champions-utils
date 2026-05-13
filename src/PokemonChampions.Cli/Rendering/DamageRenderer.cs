@@ -11,22 +11,33 @@ public static class DamageRenderer
     /// Renders one or two damage calc scenarios.
     /// Pass a single result (defenderScenarios.Count == 1) when the defender is a known team member,
     /// or two results (min bulk / max bulk) for an unknown opponent.
+    /// attackerAbility and defenderAbility are the abilities assumed in the calculation;
+    /// they are shown when provided so the user can see what was assumed.
     /// </summary>
     public static void Render(
         Move move,
         Pokemon attacker,
         string attackerLabel,
+        string? attackerAbility,
         Pokemon defender,
+        string? defenderAbility,
         IReadOnlyList<(string Label, DamageResult Result)> scenarios,
         BattleState battle,
         bool isIncoming)
     {
         // ── Header ────────────────────────────────────────────────────────────
-        var moveTypeStr  = TypeColors.Badge(move.Type);
+        // Use the effective move type from the calc result (may differ from move.Type
+        // due to type-conversion abilities like Pixilate, or form-based changes).
+        var displayType  = scenarios.Count > 0 ? scenarios[0].Result.EffectiveMoveType : move.Type;
+        var moveTypeStr  = TypeColors.Badge(displayType);
+        // Show original type badge if it differs (e.g. Normal → Fairy via Pixilate)
+        var typeNote     = displayType != move.Type
+            ? $"  [grey](converted from {TypeColors.Badge(move.Type)})[/]"
+            : string.Empty;
         var categoryStr  = $"[grey]{move.Category}[/]";
         var powerStr     = move.Power.HasValue ? $"[grey]{move.Power} BP[/]" : "[grey]— BP[/]";
         AnsiConsole.MarkupLine(
-            $"[bold]{Markup.Escape(move.Name)}[/]  {moveTypeStr}  {categoryStr}  {powerStr}");
+            $"[bold]{Markup.Escape(move.Name)}[/]  {moveTypeStr}{typeNote}  {categoryStr}  {powerStr}");
 
         // ── Attacker / Defender line ──────────────────────────────────────────
         var atkPart = $"[bold]{Markup.Escape(attacker.Name)}[/] [grey]({Markup.Escape(attackerLabel)})[/]";
@@ -35,6 +46,12 @@ public static class DamageRenderer
             AnsiConsole.MarkupLine($"  {defPart}  [grey]receives from[/]  {atkPart}");
         else
             AnsiConsole.MarkupLine($"  {atkPart}  [grey]→[/]  {defPart}");
+
+        // ── Ability notes ─────────────────────────────────────────────────────
+        if (attackerAbility is not null && !attackerLabel.Contains(attackerAbility))
+            AnsiConsole.MarkupLine($"  [grey]Attacker ability: {Markup.Escape(attackerAbility)}[/]");
+        if (defenderAbility is not null)
+            AnsiConsole.MarkupLine($"  [grey]Defender ability: {Markup.Escape(defenderAbility)}[/]");
 
         // ── Effect notes (STAB, type effectiveness) ───────────────────────────
         if (scenarios.Count > 0)
@@ -77,12 +94,12 @@ public static class DamageRenderer
 
         foreach (var (label, result) in scenarios)
         {
-            string dmgStr  = $"[bold]{result.MinDamage}–{result.MaxDamage}[/]";
-            string pctStr  = $"[grey]({result.MinPct:F1}%–{result.MaxPct:F1}%)[/]";
+            string pctStr  = $"[bold]{result.MinPct:F1}%–{result.MaxPct:F1}%[/]";
+            string dmgStr  = $"[grey]({result.MinDamage}–{result.MaxDamage})[/]";
             string koNote  = KoNote(result);
             table.AddRow(
                 Markup.Escape(label),
-                dmgStr + "  " + pctStr,
+                pctStr + "  " + dmgStr,
                 koNote);
         }
 

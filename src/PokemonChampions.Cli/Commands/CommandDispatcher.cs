@@ -22,6 +22,7 @@ public class CommandDispatcher(
     IAliasService aliasService,
     ITeamService teamService,
     IPokemonService pokemonService,
+    IItemService itemService,
     IUsageStatsService usageStatsService,
     ISettingsService settingsService)
 {
@@ -33,14 +34,16 @@ public class CommandDispatcher(
           [bold]<pokemon> <stat>[/]               Stat tier list vs. team (e.g. "incineroar speed")
           [bold]<pokemon> <stat> [[nature]] [[pts]][/]   Build comparison (e.g. "incineroar speed jolly 16")
           [bold]                 [[modifiers...]][/]      Modifiers: scarf, tailwind, para, +N, -N
-          [bold]<atk> [[+N]] <move> > <def> [[-N]][/]    Outgoing damage calc (e.g. "sneasler +1 close-combat > incineroar")
-          [bold]<def> < <atk> [[+N]] <move>[/]           Incoming damage calc (e.g. "incineroar < sneasler close-combat")
+          [bold]<atk> [[+N]] <move> > <def> [[-N]][/]    Outgoing damage (left=your pokemon, right=opponent)
+          [bold]<def> < <atk> [[+N]] <move>[/]           Incoming damage (left=your pokemon, right=opponent)
           [bold]             [[--weather sun|rain|sand|snow]] [[--terrain electric|grassy|psychic|misty]][/]
           [bold]             [[--screens]] [[--aurora-veil]] [[--gravity]][/]
           [bold]             [[--crit]] [[--burned]] [[--paralyzed]] [[--poisoned]][/]
           [bold]             [[--helping-hand]] [[--parental-bond]] [[--glaive-rush]][/]
           [bold]             [[--friend-guard]] [[--ally-battery]] [[--ally-power-spot]] [[--ally-steely-spirit]][/]
           [bold]             [[--analytic]] [[--charge]] [[--sheer-force]] [[--metronome N]][/]
+          [bold]             [[--atk-form <form>]] [[--def-form <form>]][/]
+          [bold]             [[--ability <ability>]][/]
           [bold]alias <text> <target>[/]          Create an alias  (e.g. alias mcy charizard-mega-y)
           [bold]alias remove <text>[/]            Remove an alias
           [bold]alias list[/]                     List all aliases
@@ -418,8 +421,18 @@ public class CommandDispatcher(
     // ── Damage calculation ────────────────────────────────────────────────────
 
     /// <summary>
-    /// Handles "attacker [+N] move > defender [-N] [--weather W] [--screens]"
-    /// and the reversed incoming form "defender < attacker [+N] move [flags]".
+    /// Handles "attacker [+N] move > defender [-N] [--flags]"  (isOutgoing=true)
+    /// and    "defender < attacker [+N] move [--flags]"         (isOutgoing=false).
+    ///
+    /// Direction determines which side is "ours":
+    ///   >  Left side is our Pokemon (uses team build if on team). Right side is always the opponent.
+    ///   &lt;  Left side is our Pokemon (uses team build if on team). Right side is always the opponent.
+    ///
+    /// This means the stat stages (+N/-N) in the expression refer to the relevant offensive stat
+    /// for the attacker and the relevant defensive stat for the defender:
+    ///   - Physical moves: Attack stage / Defense stage
+    ///   - Special moves:  Sp. Atk stage / Sp. Def stage
+    ///   - Body Press:     Defense stage (used as offense) / Defense stage
     /// </summary>
     private async Task HandleDamageCalcAsync(string[] allTokens, int opIdx, bool isOutgoing, CancellationToken ct)
     {
@@ -447,41 +460,93 @@ public class CommandDispatcher(
         }
 
         bool isPhysical = move.Category == MoveCategory.Physical;
+        bool isBodyPress = string.Equals(
+            move.ShowdownId.Replace("-", ""), "bodypress", StringComparison.OrdinalIgnoreCase);
 
-        // ── Resolve attacker stats ─────────────────────────────────────────
+        // ── Look up active team ────────────────────────────────────────────────
         var activeTeam = await teamService.GetActiveAsync(ct);
-        var atkMember  = activeTeam?.Members.FirstOrDefault(m =>
-            string.Equals(m.PokemonShowdownId, attacker.ShowdownId, StringComparison.OrdinalIgnoreCase));
 
+        // Left side is always "our" Pokemon. Only look up a team member for the left side.
+        //   >  form: left = attacker (ours), right = defender (opponent)
+        //   <  form: left = defender (ours), right = attacker (opponent)
+        var atkMember = isOutgoing
+            ? activeTeam?.Members.FirstOrDefault(m =>
+                string.Equals(m.PokemonShowdownId, attacker.ShowdownId, StringComparison.OrdinalIgnoreCase))
+            : null;
+        var defMember = !isOutgoing
+            ? activeTeam?.Members.FirstOrDefault(m =>
+                string.Equals(m.PokemonShowdownId, defender.ShowdownId, StringComparison.OrdinalIgnoreCase))
+            : null;
+
+        // ── Resolve attacker stats / form / ability / item ────────────────────
         ComputedStats atkStats;
         string attackerLabel;
         string? atkAbility, atkItem;
 
         if (atkMember is not null && atkMember.Nature is not null)
         {
-            var nature    = Nature.TryGet(atkMember.Nature) ?? new Nature("?", null, null);
-            atkStats      = StatCalculator.Compute(attacker.BaseStats, atkMember.StatPoints, atkMember.Ivs, nature);
-            atkAbility    = atkMember.Ability;
-            atkItem       = atkMember.Item;
-            attackerLabel = BuildAttackerLabel(atkMember, nature, isPhysical);
+            var nature = Nature.TryGet(atkMember.Nature) ?? new Nature("?", null, null);
+
+            // Resolve form: explicit --atk-form override, then auto-detect mega from item
+            var atkForm = await ResolveFormAsync(attacker, flags.AtkForm, atkMember.Item, ct);
+            if (atkForm is not null) attacker = atkForm;
+
+            atkStats   = StatCalculator.Compute(attacker.BaseStats, atkMember.StatPoints, atkMember.Ivs, nature);
+            atkAbility = atkForm?.IsMega == true ? atkForm.Ability0 : atkMember.Ability;
+            atkItem    = atkMember.Item;
+            attackerLabel = BuildAttackerLabel(atkMember, nature, isPhysical, isBodyPress, atkAbility);
         }
         else
         {
+            // Apply explicit form override even for non-team attackers
+            if (flags.AtkForm is not null)
+            {
+                var overrideAtk = await pokemonService.FindAsync(flags.AtkForm, ct);
+                if (overrideAtk is not null) attacker = overrideAtk;
+            }
+
             int maxEv  = AppConstants.MaxStatPointsPerStat * 8;
             int maxAtk = StatCalculator.CalculateStat(attacker.BaseStats.Atk, AppConstants.MaxIv, maxEv, 1.1);
             int maxSpA = StatCalculator.CalculateStat(attacker.BaseStats.SpA, AppConstants.MaxIv, maxEv, 1.1);
-            atkStats      = new ComputedStats(0, maxAtk, 0, maxSpA, 0, 0);
-            atkAbility    = null;
+            int maxDef = StatCalculator.CalculateStat(attacker.BaseStats.Def, AppConstants.MaxIv, maxEv, 1.1);
+            atkStats      = new ComputedStats(0, maxAtk, maxDef, maxSpA, 0, 0);
             atkItem       = null;
-            attackerLabel = isPhysical ? $"max Atk ({maxAtk})" : $"max SpA ({maxSpA})";
+            // For non-team (left side in > form): use Ability0 as default
+            // For opponent attacker (right side in < form): use --opp-ability or default
+            atkAbility = !isOutgoing
+                ? (flags.OppAbility ?? await GetDefaultAbilityAsync(attacker, ct))
+                : attacker.Ability0;
+            attackerLabel = isBodyPress
+                ? $"max Def ({maxDef})"
+                : (isPhysical ? $"max Atk ({maxAtk})" : $"max SpA ({maxSpA})");
         }
 
-        // ── Resolve defender ability (team member when known) ─────────────
-        var defMember = activeTeam?.Members.FirstOrDefault(m =>
-            string.Equals(m.PokemonShowdownId, defender.ShowdownId, StringComparison.OrdinalIgnoreCase));
-        string? defAbility = defMember?.Ability;
+        // ── Resolve defender form / ability ────────────────────────────────────
+        string? defAbility;
 
-        // ── Build DamageContext helper ─────────────────────────────────────
+        if (defMember is not null)
+        {
+            // Our defender (< form) — resolve form and use team ability
+            var defForm = await ResolveFormAsync(defender, flags.DefForm, defMember.Item, ct);
+            if (defForm is not null) defender = defForm;
+            defAbility = defForm?.IsMega == true ? defForm.Ability0 : defMember.Ability;
+        }
+        else
+        {
+            // Apply explicit form override for the defender
+            if (flags.DefForm is not null)
+            {
+                var overrideDef = await pokemonService.FindAsync(flags.DefForm, ct);
+                if (overrideDef is not null) defender = overrideDef;
+            }
+
+            // Opponent defender (right side in > form): use --opp-ability or usage-stats default
+            defAbility = isOutgoing
+                ? (flags.OppAbility ?? await GetDefaultAbilityAsync(defender, ct))
+                : defender.Ability0;
+        }
+
+        // ── Build DamageContext helper ─────────────────────────────────────────
         DamageContext MakeCtx(ComputedStats defStats) => new(
             attacker, atkStats, atkAbility, atkItem, atkStage,
             defender, defStats, defStage, move, flags.Battle,
@@ -503,7 +568,7 @@ public class CommandDispatcher(
             HasSheerForceBoost:      flags.HasSheerForceBoost,
             MetronomeCount:          flags.MetronomeCount);
 
-        // ── Resolve defender scenarios ─────────────────────────────────────
+        // ── Resolve defender scenarios ─────────────────────────────────────────
         var scenarios = new List<(string Label, DamageResult Result)>();
 
         if (defMember is not null && defMember.Nature is not null)
@@ -533,15 +598,77 @@ public class CommandDispatcher(
             scenarios.Add(($"Max {defStatName} ({maxDefStat} / {maxHp} HP)", DamageCalculator.Calculate(MakeCtx(maxStats))));
         }
 
-        DamageRenderer.Render(move, attacker, attackerLabel, defender, scenarios, flags.Battle, !isOutgoing);
+        DamageRenderer.Render(move, attacker, attackerLabel, atkAbility, defender, defAbility,
+                              scenarios, flags.Battle, !isOutgoing);
     }
 
-    private static string BuildAttackerLabel(TeamMember member, Nature nature, bool isPhysical)
+    /// <summary>
+    /// Resolves the Pokemon to use for a calc participant, applying form changes.
+    /// Checks <paramref name="formOverride"/> first (explicit --atk-form / --def-form flag),
+    /// then auto-detects Mega Evolution from the held item.
+    /// Returns null if no form change applies.
+    /// </summary>
+    private async Task<Pokemon?> ResolveFormAsync(
+        Pokemon baseSpecies, string? formOverride, string? heldItem, CancellationToken ct)
+    {
+        // Explicit form name takes priority over auto-detection
+        if (formOverride is not null)
+            return await pokemonService.FindAsync(formOverride, ct);
+
+        if (heldItem is null) return null;
+
+        // Check if the held item is a Mega Stone for this Pokemon
+        var itemObj = await itemService.FindAsync(heldItem, ct);
+        if (itemObj is null || !itemObj.IsMegaStone) return null;
+        if (!string.Equals(itemObj.MegaStoneFor, baseSpecies.ShowdownId, StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        // Derive mega form ID from base species + item suffix.
+        // For two-mega Pokemon (Charizard, Mewtwo): item ends with "x"/"y" → form ends with "-mega-x"/"y".
+        // For single-mega Pokemon (Blastoise, Venusaur, …): try "{base}-mega".
+        var itemNorm = heldItem.ToLowerInvariant().Replace("-", "").Replace(" ", "");
+        var candidates = new List<string>();
+
+        if (itemNorm.Length > 0)
+        {
+            char last = itemNorm[^1];
+            if (last == 'x' || last == 'y')
+                candidates.Add($"{baseSpecies.ShowdownId}-mega-{last}");
+        }
+        candidates.Add($"{baseSpecies.ShowdownId}-mega");
+
+        foreach (var candidate in candidates)
+        {
+            var form = await pokemonService.FindAsync(candidate, ct);
+            if (form is not null) return form;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Returns the default ability to assume for an opponent Pokemon.
+    /// Uses the top-usage ability if online data is available; otherwise falls back to Ability0.
+    /// </summary>
+    private async Task<string?> GetDefaultAbilityAsync(Pokemon species, CancellationToken ct)
+    {
+        var formatId = await settingsService.GetAsync(AppConstants.SettingKeys.CurrentFormat, ct)
+                       ?? AppConstants.DefaultFormat;
+        var stats = await usageStatsService.GetAsync(species.ShowdownId, formatId, ct);
+        if (stats?.Abilities.Count > 0)
+            return stats.Abilities[0].ShowdownId;
+        return species.Ability0;
+    }
+
+    private static string BuildAttackerLabel(
+        TeamMember member, Nature nature, bool isPhysical, bool isBodyPress, string? ability)
     {
         var parts = new List<string>();
         if (!nature.IsNeutral) parts.Add(nature.Name);
-        var sp = isPhysical ? member.StatPoints.Atk : member.StatPoints.SpA;
-        if (sp > 0) parts.Add($"{sp} SP {(isPhysical ? "Atk" : "SpA")}");
+        var sp = isBodyPress ? member.StatPoints.Def
+                             : (isPhysical ? member.StatPoints.Atk : member.StatPoints.SpA);
+        string statLabel = isBodyPress ? "Def" : (isPhysical ? "Atk" : "SpA");
+        if (sp > 0) parts.Add($"{sp} SP {statLabel}");
+        if (ability is not null) parts.Add(ability);
         if (member.Item is not null) parts.Add($"@ {member.Item}");
         return parts.Count > 0 ? string.Join(", ", parts) : "team";
     }
@@ -615,7 +742,10 @@ public class CommandDispatcher(
         bool TargetMovedFirst,
         bool IsCharged,
         bool HasSheerForceBoost,
-        int MetronomeCount);
+        int MetronomeCount,
+        string? AtkForm,
+        string? DefForm,
+        string? OppAbility);
 
     private static CalcFlags ExtractCalcFlags(string[] tokens, out string[] remainder)
     {
@@ -639,6 +769,9 @@ public class CommandDispatcher(
         bool charge          = false;
         bool sheerForce      = false;
         int  metronomeCount  = 0;
+        string? atkForm      = null;
+        string? defForm      = null;
+        string? oppAbility   = null;
         var kept = new List<string>();
         int i = 0;
         while (i < tokens.Length)
@@ -673,6 +806,18 @@ public class CommandDispatcher(
             {
                 metronomeCount = mc; i += 2; continue;
             }
+            if (t == "--atk-form" && i + 1 < tokens.Length)
+            {
+                atkForm = tokens[i + 1]; i += 2; continue;
+            }
+            if (t == "--def-form" && i + 1 < tokens.Length)
+            {
+                defForm = tokens[i + 1]; i += 2; continue;
+            }
+            if (t == "--ability" && i + 1 < tokens.Length)
+            {
+                oppAbility = tokens[i + 1]; i += 2; continue;
+            }
             switch (t)
             {
                 case "--screens":            screens         = true; break;
@@ -702,7 +847,8 @@ public class CommandDispatcher(
             isCrit, isBurned, isParalyzed, isPoisoned,
             helpingHand, parentalBond, glaiveRush, friendGuard,
             allyBattery, allyPowerSpot, allySteelSpirit,
-            analytic, charge, sheerForce, metronomeCount);
+            analytic, charge, sheerForce, metronomeCount,
+            atkForm, defForm, oppAbility);
     }
 
     private async Task<Move?> ResolveMoveAsync(string[] tokens, CancellationToken ct)

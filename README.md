@@ -197,6 +197,11 @@ All six current team members appear in the comparison list (showing their actual
 
 ### Damage calc
 
+The `>` and `<` operators determine which side is **your Pokemon** and which is the **opponent**:
+
+- `>` form: the **left** side is your Pokemon (uses team build if on team), the **right** side is always the opponent.
+- `<` form: the **left** side is your Pokemon (uses team build if on team), the **right** side is always the opponent.
+
 **Outgoing damage** (your Pokemon attacks):
 
 ```
@@ -209,10 +214,14 @@ sneasler close-combat > incineroar
 incineroar < sneasler close-combat
 ```
 
-Stat stages and field conditions:
+**Stat stages** — `+N` on the attacker boosts their relevant **offensive** stat; `-N` on the defender lowers their relevant **defensive** stat:
+
+- Physical moves: `+N` raises Attack / `-N` lowers Defense
+- Special moves: `+N` raises Sp. Atk / `-N` lowers Sp. Def
+- Body Press: `+N` raises Defense (used as the attacking stat) / `-N` lowers Defense
 
 ```
-sneasler +1 close-combat > incineroar -1    # attacker +1 / defender -1 stage
+sneasler +1 close-combat > incineroar -1    # sneasler +1 Atk / incineroar -1 Def
 flutter-mane moonblast > incineroar --weather sun
 sneasler close-combat > incineroar --screens
 ```
@@ -258,6 +267,14 @@ Supported `--weather` values: `sun`, `rain`, `sand`, `snow` (or `hail`). `--terr
 | `--aurora-veil` | Aurora Veil on defender's side (damage ×0.5; suppressed on crits) |
 | `--metronome N` | Attacker holds Metronome item; N = consecutive turns using same move (×1.2 at N=1, up to ×2.0 at N=5+) |
 
+**Form and ability flags:**
+
+| Flag | Effect |
+|---|---|
+| `--atk-form <name>` | Override the attacker's form for this calc (e.g. `--atk-form charizard-mega-y`). Megas are auto-detected from the held item if on your team. |
+| `--def-form <name>` | Override the defender's form for this calc (e.g. `--def-form aegislash-blade`). |
+| `--ability <name>` | Set the ability assumed for the right-side (opponent) Pokemon. If omitted, the most common ability from usage stats is used (online mode), or Ability0 (offline mode). |
+
 Examples:
 
 ```
@@ -266,13 +283,35 @@ flutter-mane moonblast > incineroar --weather sun --screens
 incineroar < sneasler close-combat --burned
 dragonite extreme-speed > incineroar --friend-guard
 ninetales dazzlinggleam > incineroar --terrain psychic
+
+# Form changes
+charizard flamethrower > incineroar --atk-form charizard-mega-y    # explicit mega form
+charizard flamethrower > incineroar                                 # auto-detected if holding Charizardite Y
+morpeko aura-wheel > incineroar --atk-form morpeko-hangry           # Dark-type Aura Wheel
+
+# Unknown opponent with a specific ability
+incineroar < iron-moth flamethrower --ability quark-drive
 ```
 
 **How stats are resolved:**
 
-- If the attacker is on your active team, their actual nature, stat points, IVs, item, and ability are used automatically.
-- If not, damage is shown at maximum offensive investment.
-- If the defender is on your active team, their actual build and ability are used automatically. Otherwise two scenarios are shown: minimum bulk (0 EVs, hindering nature) and maximum bulk (32 SP, boosting nature).
+- The **left-side** Pokemon is always yours. If it is on your active team (with a build recorded), their actual nature, stat points, IVs, item, and ability are used automatically. Otherwise, maximum offensive investment is assumed.
+- The **right-side** Pokemon is always the opponent. Two scenarios are shown — minimum bulk (0 SP, hindering nature) and maximum bulk (32 SP, boosting nature). The tool never uses your team build for the right-side Pokemon.
+- **Mega Evolution**: if your team member holds a Mega Stone, the tool automatically calculates using the mega form's base stats and ability. You can also force any form with `--atk-form` or `--def-form`.
+
+**Type-changing moves and abilities handled automatically:**
+
+| Source | Effect |
+|---|---|
+| Pixilate | Normal moves become Fairy-type and gain ×1.2 power |
+| Refrigerate | Normal moves become Ice-type and gain ×1.2 power |
+| Aerilate | Normal moves become Flying-type and gain ×1.2 power |
+| Galvanize | Normal moves become Electric-type and gain ×1.2 power |
+| Normalize | All moves become Normal-type |
+| Mega Sol | Weather Ball is always Fire-type (and ×2 power) |
+| Weather Ball | Type matches the current weather (Fire/Water/Rock/Ice); power ×2 in any weather |
+| Aura Wheel | Electric-type for Morpeko; Dark-type for Morpeko-Hangry (use `--atk-form morpeko-hangry`) |
+| Body Press | Uses the attacker's Defense stat as the attacking stat |
 
 **Attacker ability bonuses applied automatically** (when the team member's ability matches):
 
@@ -294,8 +333,10 @@ ninetales dazzlinggleam > incineroar --terrain psychic
 | Neuroforce | Super-effective damage ×1.25 |
 | Sniper | Critical hit damage ×1.5 extra (stacks with base crit boost) |
 | Tinted Lens | Not-very-effective damage ×2 |
+| Pixilate / Refrigerate / Aerilate / Galvanize | Type conversion + ×1.2 power (auto-applied when attacker has the ability) |
+| Mega Sol | Weather Ball always Fire-type + ×2 power |
 
-**Defender ability bonuses applied automatically** (when the defender is a known team member):
+**Defender ability bonuses applied automatically** (when the defender is a known team member or ability is specified):
 
 | Ability | Effect |
 |---|---|
