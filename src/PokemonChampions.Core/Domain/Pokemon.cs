@@ -15,6 +15,7 @@ public class Pokemon
     public string? AbilityH { get; init; }
     public bool IsMega { get; init; }
     public string? BaseFormShowdownId { get; init; }
+    public bool CanEvolve { get; init; }
     public bool IsLegalInCurrentFormat { get; set; }
 
     public IEnumerable<string> GetAbilities()

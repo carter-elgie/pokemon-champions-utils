@@ -33,7 +33,14 @@ public class CommandDispatcher(
           [bold]<name>[/]                         Look up a Pokemon, move, item, or ability
           [bold]<pokemon> <stat>[/]               Stat tier list vs. team (e.g. "incineroar speed")
           [bold]<pokemon> <stat> [[nature]] [[pts]][/]   Build comparison (e.g. "incineroar speed jolly 16")
-          [bold]                 [[modifiers...]][/]      Modifiers: scarf, tailwind, para, +N, -N
+          [bold]                 [[modifiers...]][/]      Speed: scarf, tailwind, para, chlorophyll, swift swim, sand rush,
+          [bold]                                [/]        slush rush, unburden, surge surfer, quick feet, slow start, iron ball
+          [bold]                                [/]      Atk: band, huge power, hustle, gorilla tactics, guts, defeatist,
+          [bold]                                [/]        flower gift, light ball, thick club
+          [bold]                                [/]      SpA: specs, solar power, plus, minus, hadron engine, defeatist, light ball
+          [bold]                                [/]      Def: fur coat, marvel scale, eviolite
+          [bold]                                [/]      SpD: vest, ice scales, eviolite
+          [bold]                                [/]      All: +N/-N (stat stage, ±1–6)
           [bold]<atk> [[+N]] <move> > <def> [[-N]][/]    Outgoing damage (left=your pokemon, right=opponent)
           [bold]<def> < <atk> [[+N]] <move>[/]           Incoming damage (left=your pokemon, right=opponent)
           [bold]             [[--weather sun|rain|sand|snow]] [[--terrain electric|grassy|psychic|misty]][/]
@@ -282,8 +289,21 @@ public class CommandDispatcher(
 
     private async Task RenderStatTierAsync(Pokemon pokemon, StatName stat, StatModifierSet modifiers, CancellationToken ct)
     {
-        var entries = await GetTeamEntriesAsync(stat, ct);
-        PokemonRenderer.RenderStatTier(pokemon, stat, entries, modifiers);
+        // Fetch the queried Pokemon's own team build (if on team) for the "Your build" header line.
+        // The queried Pokemon is excluded from the tier entries to avoid duplication.
+        int? teamBuildStat = null;
+        string? teamBuildLabel = null;
+        var ownMember = await GetActiveTeamMemberAsync(pokemon.ShowdownId, ct);
+        if (ownMember?.Nature is not null)
+        {
+            var nature = Nature.TryGet(ownMember.Nature) ?? new Nature("?", null, null);
+            int raw = StatCalculator.Compute(pokemon.BaseStats, ownMember.StatPoints, ownMember.Ivs, nature).Get(stat);
+            teamBuildStat = modifiers.Apply(raw, stat, pokemon);
+            teamBuildLabel = BuildTeamBuildStatLabel(ownMember, nature, stat);
+        }
+
+        var entries = await GetTeamEntriesAsync(stat, ct, excludeShowdownId: pokemon.ShowdownId);
+        PokemonRenderer.RenderStatTier(pokemon, stat, entries, modifiers, teamBuildStat, teamBuildLabel);
     }
 
     private async Task RenderStatBuildAsync(
@@ -295,12 +315,15 @@ public class CommandDispatcher(
         double natureMult = stat != StatName.Hp ? (build.Nature?.GetMultiplier(stat) ?? 1.0) : 1.0;
         int unmodified = StatCalculator.Calculate(stat, baseStat, AppConstants.MaxIv, rawEv, natureMult);
 
+        // Include all team entries (including the queried Pokemon's actual build if different)
         var entries = await GetTeamEntriesAsync(stat, ct);
         PokemonRenderer.RenderStatBuild(
-            pokemon, stat, modifiers.Apply(unmodified), unmodified, BuildLabelFor(build, stat), entries, modifiers);
+            pokemon, stat, modifiers.Apply(unmodified, stat, pokemon), unmodified,
+            BuildLabelFor(build, stat), entries, modifiers);
     }
 
-    private async Task<List<StatTierEntry>> GetTeamEntriesAsync(StatName stat, CancellationToken ct)
+    private async Task<List<StatTierEntry>> GetTeamEntriesAsync(
+        StatName stat, CancellationToken ct, string? excludeShowdownId = null)
     {
         var entries = new List<StatTierEntry>();
         var team = await teamService.GetActiveAsync(ct);
@@ -309,6 +332,10 @@ public class CommandDispatcher(
         foreach (var member in team.Members)
         {
             if (member.PokemonShowdownId is null) continue;
+            if (excludeShowdownId is not null &&
+                string.Equals(member.PokemonShowdownId, excludeShowdownId, StringComparison.OrdinalIgnoreCase))
+                continue;
+
             var species = await pokemonService.FindAsync(member.PokemonShowdownId, ct);
             if (species is null) continue;
 
@@ -324,6 +351,15 @@ public class CommandDispatcher(
         }
 
         return entries;
+    }
+
+    private static string BuildTeamBuildStatLabel(TeamMember member, Nature nature, StatName stat)
+    {
+        var parts = new List<string>();
+        if (!nature.IsNeutral && stat != StatName.Hp) parts.Add(nature.Name);
+        int sp = member.StatPoints.Get(stat);
+        if (sp > 0) parts.Add($"{sp} SP");
+        return parts.Count > 0 ? string.Join(", ", parts) : "team build";
     }
 
     // ── Build parsing ─────────────────────────────────────────────────────────

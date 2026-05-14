@@ -66,7 +66,8 @@ public class PokemonService(AppDbContext db, ISettingsService settings, FormatRe
         Ability1 = e.Ability1,
         AbilityH = e.AbilityH,
         IsMega = e.IsMega,
-        BaseFormShowdownId = e.BaseFormShowdownId
+        BaseFormShowdownId = e.BaseFormShowdownId,
+        CanEvolve = e.CanEvolve
     };
 
     private async Task<IFormatDefinition?> GetCurrentFormatAsync(CancellationToken ct)

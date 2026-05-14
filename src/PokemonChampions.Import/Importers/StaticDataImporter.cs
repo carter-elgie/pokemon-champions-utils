@@ -85,6 +85,9 @@ public class StaticDataImporter(AppDbContext db, HttpClient http, ILogger<Static
             string name = obj.TryGetProperty("name", out var nameProp) ? nameProp.GetString() ?? id : id;
             bool isMega = name.Contains("-Mega") || name.Contains("-Mega-");
             string? baseForm = obj.TryGetProperty("baseSpecies", out var baseProp) ? baseProp.GetString()?.ToShowdownId() : null;
+            bool canEvolve = obj.TryGetProperty("evos", out var evos)
+                && evos.ValueKind == JsonValueKind.Array
+                && evos.GetArrayLength() > 0;
 
             var entity = await db.Pokemon.FirstOrDefaultAsync(p => p.ShowdownId == id, ct)
                 ?? new PokemonEntity { ShowdownId = id };
@@ -104,6 +107,7 @@ public class StaticDataImporter(AppDbContext db, HttpClient http, ILogger<Static
             entity.AbilityH = abH;
             entity.IsMega = isMega;
             entity.BaseFormShowdownId = baseForm != id ? baseForm : null;
+            entity.CanEvolve = canEvolve;
             entity.IsCurrentGenStandard = !obj.TryGetProperty("isNonstandard", out var ns) || ns.GetString() != "Past";
             entity.UpdatedAt = now;
 

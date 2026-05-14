@@ -54,6 +54,9 @@ public class PokemonEntity
     /// </summary>
     public bool IsCurrentGenStandard { get; set; } = true;
 
+    /// <summary>True if this species has at least one further evolution (i.e., Eviolite is usable).</summary>
+    public bool CanEvolve { get; set; }
+
     /// <summary>Comma-separated list of format IDs in which this Pokemon is banned.</summary>
     [MaxLength(500)]
     public string? FormatBans { get; set; }

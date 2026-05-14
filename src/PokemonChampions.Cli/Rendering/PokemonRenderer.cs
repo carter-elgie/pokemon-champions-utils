@@ -107,10 +107,18 @@ public static class PokemonRenderer
         AnsiConsole.WriteLine();
     }
 
+    /// <summary>
+    /// Renders the two-tier (uninvested / max invest) stat comparison list.
+    /// Modifiers are applied only to the queried Pokemon's stat; team entries show their own stats.
+    /// If the queried Pokemon is on the active team with a build, <paramref name="teamBuildStat"/>
+    /// is shown as a highlighted "Your build" line above the tier lists.
+    /// </summary>
     public static void RenderStatTier(
         Pokemon pokemon, StatName stat,
         IReadOnlyList<StatTierEntry> teamEntries,
-        StatModifierSet? modifiers = null)
+        StatModifierSet? modifiers = null,
+        int? teamBuildStat = null,
+        string? teamBuildLabel = null)
     {
         modifiers ??= StatModifierSet.None;
         var range = StatCalculator.GetRange(pokemon.BaseStats.Get(stat), stat);
@@ -120,21 +128,28 @@ public static class PokemonRenderer
                      $"[grey]Base {range.Base}   Min {range.Min}   Max {range.Max}[/]";
         AnsiConsole.MarkupLine(header);
 
-        // Modifier line (only shown when active)
-        if (modifiers.HasAny)
+        // Team build line (when the queried Pokemon is on the active team)
+        if (teamBuildStat.HasValue)
         {
-            var mult = modifiers.TotalMultiplier;
+            var teamNote = teamBuildLabel is not null ? $"  [grey]({Markup.Escape(teamBuildLabel)})[/]" : string.Empty;
+            AnsiConsole.MarkupLine($"  [grey]Your build:[/] [bold]{teamBuildStat.Value}[/]{teamNote}");
+        }
+
+        // Modifier line (only shown when active for this stat)
+        if (modifiers.HasAny(stat, pokemon))
+        {
+            var mult = modifiers.TotalMultiplier(stat, pokemon);
             AnsiConsole.MarkupLine(
-                $"  [grey]{Markup.Escape(modifiers.Describe())} (×{mult:F2})[/]   " +
-                $"[grey]→  Min [bold]{modifiers.Apply(range.Min)}[/]   Max [bold]{modifiers.Apply(range.Max)}[/][/]");
+                $"  [grey]{Markup.Escape(modifiers.Describe(stat, pokemon))} (×{mult:F2})[/]   " +
+                $"[grey]→  Min [bold]{modifiers.Apply(range.Min, stat, pokemon)}[/]   Max [bold]{modifiers.Apply(range.Max, stat, pokemon)}[/][/]");
         }
 
         AnsiConsole.WriteLine();
 
-        int queriedMin = modifiers.Apply(range.Min);
-        int queriedMax = modifiers.Apply(range.Max);
+        int queriedMin = modifiers.Apply(range.Min, stat, pokemon);
+        int queriedMax = modifiers.Apply(range.Max, stat, pokemon);
 
-        var modLabel = modifiers.HasAny ? $" + {modifiers.Describe()}" : string.Empty;
+        var modLabel = modifiers.HasAny(stat, pokemon) ? $" + {modifiers.Describe(stat, pokemon)}" : string.Empty;
 
         var minRows = BuildTierRows(pokemon.Name, queriedMin, teamEntries, useMax: false)
             .OrderByDescending(r => r.Stat).ToList();
@@ -167,16 +182,16 @@ public static class PokemonRenderer
 
         AnsiConsole.MarkupLine($"  [grey]{Markup.Escape(buildLabel)}[/] → [bold]{unmodifiedStat}[/]");
 
-        if (modifiers.HasAny)
+        if (modifiers.HasAny(stat, pokemon))
         {
             AnsiConsole.MarkupLine(
-                $"  [grey]{Markup.Escape(modifiers.Describe())} (×{modifiers.TotalMultiplier:F2})[/]   " +
+                $"  [grey]{Markup.Escape(modifiers.Describe(stat, pokemon))} (×{modifiers.TotalMultiplier(stat, pokemon):F2})[/]   " +
                 $"[grey]→[/] [bold]{queriedStat}[/]");
         }
 
         AnsiConsole.WriteLine();
 
-        var modLabel = modifiers.HasAny ? $" + {modifiers.Describe()}" : string.Empty;
+        var modLabel = modifiers.HasAny(stat, pokemon) ? $" + {modifiers.Describe(stat, pokemon)}" : string.Empty;
         AnsiConsole.MarkupLine($"[grey]── Build comparison{Markup.Escape(modLabel)}[/]");
 
         var rows = BuildTierRows(pokemon.Name, queriedStat, teamEntries, useMax: false)

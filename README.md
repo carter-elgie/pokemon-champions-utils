@@ -154,7 +154,7 @@ If a move, item, ability, or Pokemon is not legal in the current format, the too
 
 ### Stat lookup
 
-Shows base, minimum, and maximum values for a specific stat, plus two sorted tier lists — one uninvested, one fully invested — placing the searched Pokemon alongside your current team.
+Shows base, minimum, and maximum values for a specific stat, plus two sorted tier lists — one uninvested, one fully invested — placing the searched Pokemon alongside your current team. If the queried Pokemon is on your active team, their actual build stat is shown prominently above the tier lists.
 
 ```
 incineroar speed
@@ -162,13 +162,91 @@ incineroar hp
 flutter-mane special attack    # flexible stat name recognition
 ```
 
-Modifiers can be appended to either form of the stat lookup:
+#### Modifiers
+
+Modifiers can be appended to any stat lookup. Modifiers affect only the **queried Pokemon's** stat; team entries always show their own actual or estimated stats.
 
 ```
-incineroar speed scarf         # with Choice Scarf
-incineroar speed +1            # with a +1 speed boost
-incineroar speed tailwind      # under Tailwind
+incineroar speed scarf            # with Choice Scarf
+incineroar speed +1               # with a +1 speed boost
+incineroar speed tailwind         # under Tailwind
+chansey defense eviolite          # Eviolite Def (only applies if the Pokemon can evolve)
+flutter-mane special-attack specs # with Choice Specs
 ```
+
+Multi-word modifier names can be typed with a space between words or run together:
+
+```
+incineroar speed choice scarf     # same as "scarf"
+incineroar attack choice band     # same as "band"
+chansey defense assault vest      # same as "vest"
+```
+
+**Speed modifiers:**
+
+| Modifier | Aliases | Effect |
+|---|---|---|
+| `scarf` / `choice scarf` | `choicescarf` | ×1.5 |
+| `tailwind` | `tw` | ×2 |
+| `paralysis` | `para` | ×0.5 |
+| `chlorophyll` | — | ×2 (sun assumed) |
+| `swift swim` | `swiftswim` | ×2 (rain assumed) |
+| `sand rush` | `sandrush` | ×2 (sand assumed) |
+| `slush rush` | `slushrush` | ×2 (snow assumed) |
+| `unburden` | — | ×2 (item consumed assumed) |
+| `surge surfer` | `surgesurfer` | ×2 (electric terrain assumed) |
+| `quick feet` | `quickfeet` | ×1.5 (statused assumed) |
+| `slow start` | `slowstart` | ×0.5 |
+| `iron ball` | `ironball` | ×0.5 |
+| `+N` / `-N` | — | stage boost (±1–6) |
+
+**Attack modifiers:**
+
+| Modifier | Aliases | Effect |
+|---|---|---|
+| `band` / `choice band` | `choiceband` | ×1.5 |
+| `huge power` / `pure power` | `hugepower`, `purepower` | ×2 |
+| `hustle` | — | ×1.5 |
+| `gorilla tactics` | `gorillatactics` | ×1.5 |
+| `guts` | — | ×1.5 (statused assumed) |
+| `defeatist` | — | ×0.5 (low HP assumed) |
+| `flower gift` | `flowergift` | ×1.5 (sun assumed) |
+| `light ball` | `lightball` | ×2 (Pikachu family only) |
+| `thick club` | `thickclub` | ×2 (Cubone/Marowak only) |
+
+**Special Attack modifiers:**
+
+| Modifier | Aliases | Effect |
+|---|---|---|
+| `specs` / `choice specs` | `choicespecs` | ×1.5 |
+| `solar power` | `solarpower` | ×1.5 (sun assumed) |
+| `plus` | — | ×1.5 (ally has Minus assumed) |
+| `minus` | — | ×1.5 (ally has Plus assumed) |
+| `hadron engine` | `hadronengine` | ×1.33 |
+| `defeatist` | — | ×0.5 (low HP assumed) |
+| `light ball` | `lightball` | ×2 (Pikachu family only) |
+
+**Defense modifiers:**
+
+| Modifier | Aliases | Effect |
+|---|---|---|
+| `fur coat` | `furcoat` | ×2 |
+| `marvel scale` | `marvelscale` | ×1.5 (statused assumed) |
+| `eviolite` | — | ×1.5 (non-fully-evolved Pokemon only) |
+
+**Special Defense modifiers:**
+
+| Modifier | Aliases | Effect |
+|---|---|---|
+| `vest` / `assault vest` | `assaultvest` | ×1.5 |
+| `ice scales` | `icescales` | ×2 |
+| `eviolite` | — | ×1.5 (non-fully-evolved Pokemon only) |
+
+> **Ability modifiers**: the ability does not need to be the Pokemon's actual ability — specifying `chlorophyll` or `huge power` applies the modifier regardless.
+>
+> **Item modifiers**: `light ball`, `thick club`, and `eviolite` are silently ignored if the Pokemon cannot benefit from them (wrong species, or already fully evolved).
+>
+> **Condition modifiers**: for abilities or moves that require a field condition (e.g., Chlorophyll requires sun, Guts requires a status), the condition is always assumed to be met.
 
 #### Build-specific comparison
 
@@ -187,11 +265,13 @@ incineroar speed 32             # max stat points, neutral nature
 - Modifiers work the same way:
 
 ```
-incineroar speed jolly 16 scarf    # Jolly 16 SP + Choice Scarf
-incineroar speed timid +2          # Timid, uninvested, +2 boost
+incineroar speed jolly 16 scarf       # Jolly 16 SP + Choice Scarf
+incineroar speed timid +2             # Timid, uninvested, +2 boost
+chansey defense bold 32 eviolite      # Bold max Def + Eviolite
+flutter-mane special-attack timid specs  # Timid uninvested + Choice Specs
 ```
 
-All six current team members appear in the comparison list (showing their actual invested stats when a build is recorded, or uninvested estimates otherwise).
+All team members appear in the comparison list, showing their actual invested stats when a build is recorded or uninvested estimates otherwise. The queried Pokemon's actual team build appears as a separate entry if it differs from the hypothetical build.
 
 ---
 
