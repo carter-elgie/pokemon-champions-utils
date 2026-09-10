@@ -183,15 +183,18 @@ public static class PokepasteParser
 
             if (isEvs)
             {
-                // Pokemon Champions pokepastes use stat points directly in the EV field (0–32).
+                // Pokepaste EVs are stored in standard Gen 9 EV units (0–252).
+                // Pokemon Champions uses stat points (1 stat point = 4 EVs),
+                // so we convert: statPoints = floor(evs / 4)
+                int statPoints = value / 4;
                 switch (canonical)
                 {
-                    case "hp":  member.SpHp  = value; break;
-                    case "atk": member.SpAtk = value; break;
-                    case "def": member.SpDef = value; break;
-                    case "spa": member.SpSpa = value; break;
-                    case "spd": member.SpSpd = value; break;
-                    case "spe": member.SpSpe = value; break;
+                    case "hp":  member.SpHp  = statPoints; break;
+                    case "atk": member.SpAtk = statPoints; break;
+                    case "def": member.SpDef = statPoints; break;
+                    case "spa": member.SpSpa = statPoints; break;
+                    case "spd": member.SpSpd = statPoints; break;
+                    case "spe": member.SpSpe = statPoints; break;
                 }
             }
             else
