@@ -31,6 +31,9 @@ public static class LegalityChecker
         if (team.Members.Count > format.TeamPreviewSize)
             violations.Add(new LegalityViolation(
                 $"Team has {team.Members.Count} members; max is {format.TeamPreviewSize}."));
+        else if (team.Members.Count < format.TeamPreviewSize)
+            warnings.Add(new LegalityWarning(
+                $"Team has {team.Members.Count} member(s); expected {format.TeamPreviewSize}."));
 
         return new LegalityReport { Violations = violations, Warnings = warnings };
     }

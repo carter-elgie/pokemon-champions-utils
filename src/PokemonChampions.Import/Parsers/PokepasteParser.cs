@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using PokemonChampions.Import.Dto;
+using PokemonChampions.Shared.Constants;
 
 namespace PokemonChampions.Import.Parsers;
 
@@ -22,6 +23,9 @@ public static class PokepasteParser
     private static readonly Regex EvLine = new(@"(\d+)\s+([A-Za-z.]+(?:\s+[A-Za-z.]+)?)", RegexOptions.Compiled);
     private static readonly Regex NatureLine = new(@"^([A-Za-z]+)\s+Nature$", RegexOptions.Compiled | RegexOptions.Multiline);
     private static readonly Regex SpeciesItemLine = new(@"^(?:(.+?)\s+\((.+?)\)|(.+?))\s*(?:@\s*(.+))?$", RegexOptions.Compiled);
+
+    // Trailing "(M)" / "(F)" gender marker, e.g. "Basculegion (M)" or "Spud (Floette-Eternal) (F)".
+    private static readonly Regex GenderMarker = new(@"\s*\(([MF])\)\s*$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     /// <summary>
     /// Parses a full pokepaste string into up to 6 team member records.
@@ -135,10 +139,12 @@ public static class PokepasteParser
     private static void ParseFirstLine(string line, ParsedTeamMember member)
     {
         // Formats:
-        //   "Incineroar @ Sitrus Berry"          — no nickname
-        //   "Spud (Incineroar) @ Sitrus Berry"  — nickname (species)
-        //   "Incineroar"                         — bare species, no item
-        //   "Spud (Incineroar)"                  — nickname, no item
+        //   "Incineroar @ Sitrus Berry"              — no nickname
+        //   "Spud (Incineroar) @ Sitrus Berry"       — nickname (species)
+        //   "Incineroar (M) @ Sitrus Berry"          — species with gender
+        //   "Spud (Incineroar) (M) @ Sitrus Berry"   — nickname, species, and gender
+        //   "Incineroar"                             — bare species, no item
+        //   "Spud (Incineroar)"                      — nickname, no item
 
         string rest = line;
         string? item = null;
@@ -151,6 +157,13 @@ public static class PokepasteParser
         }
 
         member.Item = item;
+
+        var genderMatch = GenderMarker.Match(rest);
+        if (genderMatch.Success)
+        {
+            member.Gender = genderMatch.Groups[1].Value.ToUpperInvariant();
+            rest = rest[..genderMatch.Index].TrimEnd();
+        }
 
         // Check for nickname (species) pattern
         var parenOpen = rest.IndexOf('(');
@@ -183,10 +196,13 @@ public static class PokepasteParser
 
             if (isEvs)
             {
-                // Pokepaste EVs are stored in standard Gen 9 EV units (0–252).
-                // Pokemon Champions uses stat points (1 stat point = 4 EVs),
-                // so we convert: statPoints = floor(evs / 4)
-                int statPoints = value / 4;
+                // Pokepastes can list either Champions stat points directly (0-32, the
+                // native format — see README) or standard Gen 9 EVs (0-252, e.g. a set
+                // copied from a real Showdown export). Same threshold heuristic as the
+                // CLI's manual build-spec command: values already within the stat point
+                // range are used as-is; larger values are treated as raw EVs and
+                // converted (1 stat point = 8 EVs, matching StatCalculator's formula).
+                int statPoints = value <= AppConstants.MaxStatPointsPerStat ? value : value / 8;
                 switch (canonical)
                 {
                     case "hp":  member.SpHp  = statPoints; break;

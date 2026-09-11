@@ -70,12 +70,12 @@ public class PokepasteParserTests
     {
         var result = PokepasteParser.Parse(SamplePaste);
         var first = result[0];
-        // 252 EVs / 4 = 63 stat points
-        Assert.Equal(63, first.SpHp);
-        // 4 EVs / 4 = 1 stat point
-        Assert.Equal(1, first.SpAtk);
-        // 252 EVs / 4 = 63 stat points
-        Assert.Equal(63, first.SpSpd);
+        // 252 > 32, so treated as a raw EV and converted: 252 / 8 = 31 stat points
+        Assert.Equal(31, first.SpHp);
+        // 4 <= 32, so treated as an already-Champions stat point value: stays 4
+        Assert.Equal(4, first.SpAtk);
+        // 252 > 32, so treated as a raw EV and converted: 252 / 8 = 31 stat points
+        Assert.Equal(31, first.SpSpd);
         // Unspecified stats = 0
         Assert.Equal(0, first.SpDef);
         Assert.Equal(0, first.SpSpa);
@@ -126,5 +126,58 @@ public class PokepasteParserTests
         Assert.Equal(31, member.IvHp);
         Assert.Equal(31, member.IvAtk);
         Assert.Equal(31, member.IvSpe);
+    }
+
+    [Fact]
+    public void Parse_NativeChampionsStatPoints_AreNotDividedDown()
+    {
+        // A pokepaste authored directly in Champions units (max stat point cap is 32),
+        // not copied from a real Showdown export. These values must be used as-is.
+        const string paste = "Sneasler @ Grassy Seed\nAbility: Unburden\nLevel: 50\nEVs: 2 HP / 32 Atk / 32 Spe\nJolly Nature\n- Dire Claw";
+        var result = PokepasteParser.Parse(paste);
+        var member = result[0];
+        Assert.Equal(2, member.SpHp);
+        Assert.Equal(32, member.SpAtk);
+        Assert.Equal(32, member.SpSpe);
+    }
+
+    [Fact]
+    public void Parse_SpeciesWithGenderMarker_ParsesSpeciesAndGenderSeparately()
+    {
+        const string paste = "Basculegion (M) @ Choice Band\nAbility: Adaptability\nAdamant Nature\n- Wave Crash";
+        var result = PokepasteParser.Parse(paste);
+        var member = result[0];
+        Assert.Equal("Basculegion", member.Species);
+        Assert.Equal("M", member.Gender);
+        Assert.Null(member.Nickname);
+    }
+
+    [Fact]
+    public void Parse_HyphenatedSpeciesWithGenderMarker_ParsesSpeciesAndGender()
+    {
+        const string paste = "Floette-Eternal (F) @ Leftovers\nAbility: Flower Veil\nBold Nature\n- Moonblast";
+        var result = PokepasteParser.Parse(paste);
+        var member = result[0];
+        Assert.Equal("Floette-Eternal", member.Species);
+        Assert.Equal("F", member.Gender);
+    }
+
+    [Fact]
+    public void Parse_NicknamedSpeciesWithGenderMarker_ParsesAllThree()
+    {
+        const string paste = "Spud (Flutter Mane) (F) @ Choice Specs\nAbility: Protosynthesis\nTimid Nature\n- Moonblast";
+        var result = PokepasteParser.Parse(paste);
+        var member = result[0];
+        Assert.Equal("Spud", member.Nickname);
+        Assert.Equal("Flutter Mane", member.Species);
+        Assert.Equal("F", member.Gender);
+    }
+
+    [Fact]
+    public void Parse_SpeciesWithoutGenderMarker_GenderIsNull()
+    {
+        const string paste = "Charizard @ Life Orb\nAbility: Blaze\nTimid Nature\n- Flamethrower";
+        var result = PokepasteParser.Parse(paste);
+        Assert.Null(result[0].Gender);
     }
 }

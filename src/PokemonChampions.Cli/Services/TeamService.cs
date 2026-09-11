@@ -135,7 +135,7 @@ public class TeamService(AppDbContext db, ISettingsService settings, FormatRegis
                 CreatedAt        = now,
                 UpdatedAt        = now
             };
-            BuildMembers(newTeam, parsed);
+            await BuildMembersAsync(newTeam, parsed, ct);
             db.Teams.Add(newTeam);
             await db.SaveChangesAsync(ct);
             return MapToDomain(newTeam);
@@ -146,20 +146,20 @@ public class TeamService(AppDbContext db, ISettingsService settings, FormatRegis
             existing.Pokepaste = pokepaste;
             existing.UpdatedAt = now;
             existing.Members.Clear();
-            BuildMembers(existing, parsed);
+            await BuildMembersAsync(existing, parsed, ct);
             await db.SaveChangesAsync(ct);
             return MapToDomain(existing);
         }
     }
 
-    private static void BuildMembers(TeamEntity team, IReadOnlyList<ParsedTeamMember> parsed)
+    private async Task BuildMembersAsync(TeamEntity team, IReadOnlyList<ParsedTeamMember> parsed, CancellationToken ct)
     {
         int slot = 0;
         foreach (var p in parsed.Take(6))
         {
             team.Members.Add(new TeamMemberEntity
             {
-                PokemonShowdownId = p.Species?.ToShowdownId(),
+                PokemonShowdownId = await ResolveShowdownIdAsync(p.Species, p.Gender, ct),
                 Nickname          = string.IsNullOrWhiteSpace(p.Nickname) ? null : p.Nickname,
                 Item              = p.Item,
                 Ability           = p.Ability,
@@ -183,6 +183,24 @@ public class TeamService(AppDbContext db, ISettingsService settings, FormatRegis
                 SlotIndex = slot++
             });
         }
+    }
+
+    // Some species have a distinct Female form with different stats/ability/movepool
+    // (e.g. Basculegion-F, Indeedee-F). Male is always the default/base DB entry, so
+    // only a Female marker needs to try resolving to a separate "<species>f" form.
+    private async Task<string?> ResolveShowdownIdAsync(string? species, string? gender, CancellationToken ct)
+    {
+        if (species is null) return null;
+
+        var baseId = species.ToNormalizedId();
+        if (string.Equals(gender, "F", StringComparison.OrdinalIgnoreCase))
+        {
+            var femaleId = baseId + "f";
+            if (await db.Pokemon.AnyAsync(p => p.ShowdownId == femaleId, ct))
+                return femaleId;
+        }
+
+        return baseId;
     }
 
     internal static Team MapToDomain(TeamEntity e) => new()

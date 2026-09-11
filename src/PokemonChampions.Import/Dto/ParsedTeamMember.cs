@@ -5,6 +5,9 @@ public class ParsedTeamMember
 {
     public string? Species { get; set; }
     public string? Nickname { get; set; }
+
+    /// <summary>"M" or "F" if a gender marker was present in the pokepaste, otherwise null.</summary>
+    public string? Gender { get; set; }
     public string? Item { get; set; }
     public string? Ability { get; set; }
     public string? Nature { get; set; }
