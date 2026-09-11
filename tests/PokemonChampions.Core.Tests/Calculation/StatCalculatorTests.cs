@@ -58,6 +58,9 @@ public class StatCalculatorTests
         Assert.Equal(170, range.Min);
         // Max: 31 IV, 32 stat points added directly → 170 + 32 = 202
         Assert.Equal(202, range.Max);
+        // HP is never affected by nature, so soft values equal the true min/max.
+        Assert.Equal(range.Min, range.SoftMin);
+        Assert.Equal(range.Max, range.SoftMax);
     }
 
     [Fact]
@@ -69,6 +72,11 @@ public class StatCalculatorTests
         // Min: 31 IV, 0 stat points, hindering (×0.9)
         // floor((floor((180+31+0)*0.5)+5)*0.9) = floor(110*0.9) = 99
         Assert.Equal(99, range.Min);
+        // SoftMin: 31 IV, 0 stat points, neutral (×1.0) → floor(110*1.0) = 110
+        Assert.Equal(110, range.SoftMin);
+        // SoftMax: 31 IV, 32 stat points (ev=256), neutral (×1.0)
+        // floor((floor((180+31+64)*0.5)+5)*1.0) = floor(142*1.0) = 142
+        Assert.Equal(142, range.SoftMax);
         // Max: 31 IV, 32 stat points (ev=256), boosting (×1.1)
         // floor((floor((180+31+64)*0.5)+5)*1.1) = floor((137+5)*1.1) = floor(156.2) = 156
         Assert.Equal(156, range.Max);

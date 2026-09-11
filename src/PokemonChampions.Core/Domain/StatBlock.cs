@@ -20,10 +20,12 @@ public record BaseStats(int Hp, int Atk, int Def, int SpA, int SpD, int Spe)
 }
 
 /// <summary>
-/// The min and max achievable values for a single stat at level 50 with 31 IVs.
-/// Min uses 0 EVs and a hindering nature; max uses 252 EVs and a boosting nature.
+/// The achievable values for a single stat at level 50 with 31 IVs.
+/// Min: 0 stat points, hindering nature. SoftMin: 0 stat points, neutral nature.
+/// SoftMax: max stat points, neutral nature. Max: max stat points, boosting nature.
+/// For HP (which nature never affects), Min == SoftMin and SoftMax == Max.
 /// </summary>
-public record StatRange(int Base, int Min, int Max);
+public record StatRange(int Base, int Min, int SoftMin, int SoftMax, int Max);
 
 /// <summary>Computed stats for a specific Pokemon instance at level 50.</summary>
 public record ComputedStats(int Hp, int Atk, int Def, int SpA, int SpD, int Spe)

@@ -48,10 +48,14 @@ public static class StatCalculator
     private static int StatPointsToEv(int statPoints) => statPoints * 8;
 
     /// <summary>
-    /// Returns the displayed range for a stat: base value, minimum, and maximum at level 50 with 31 IVs.
-    /// Min: 0 stat points, hindering nature (×0.9 for non-HP).
-    /// Max: <see cref="AppConstants.MaxStatPointsPerStat"/> stat points, boosting nature (×1.1 for non-HP).
+    /// Returns the displayed range for a stat at level 50 with 31 IVs:
+    /// Min: 0 stat points, hindering nature (×0.9 for non-HP) — the true floor.
+    /// SoftMin: 0 stat points, but nature does not affect this stat (×1.0) — more realistic
+    /// floor, since most Pokemon don't run a nature that lowers a stat they care about.
+    /// SoftMax: <see cref="AppConstants.MaxStatPointsPerStat"/> stat points, neutral nature (×1.0).
+    /// Max: <see cref="AppConstants.MaxStatPointsPerStat"/> stat points, boosting nature (×1.1) — the true ceiling.
     /// Nature amplifies stat points — they feed into the standard EV slot, not added post-formula.
+    /// HP is never affected by nature, so Min == SoftMin and SoftMax == Max for it.
     /// </summary>
     public static StatRange GetRange(int baseStat, StatName stat, int level = AppConstants.LevelCap)
     {
@@ -61,12 +65,14 @@ public static class StatCalculator
         {
             int min = CalculateHp(baseStat, AppConstants.MaxIv, 0, level);
             int max = CalculateHp(baseStat, AppConstants.MaxIv, maxEv, level);
-            return new StatRange(baseStat, min, max);
+            return new StatRange(baseStat, min, min, max, max);
         }
 
-        int minVal = CalculateStat(baseStat, AppConstants.MaxIv, 0, 0.9, level);
-        int maxVal = CalculateStat(baseStat, AppConstants.MaxIv, maxEv, 1.1, level);
-        return new StatRange(baseStat, minVal, maxVal);
+        int minVal     = CalculateStat(baseStat, AppConstants.MaxIv, 0,     0.9, level);
+        int softMinVal = CalculateStat(baseStat, AppConstants.MaxIv, 0,     1.0, level);
+        int softMaxVal = CalculateStat(baseStat, AppConstants.MaxIv, maxEv, 1.0, level);
+        int maxVal     = CalculateStat(baseStat, AppConstants.MaxIv, maxEv, 1.1, level);
+        return new StatRange(baseStat, minVal, softMinVal, softMaxVal, maxVal);
     }
 
     /// <summary>

@@ -35,8 +35,7 @@ public static class PokemonRenderer
             .Border(TableBorder.Simple)
             .AddColumn(new TableColumn("[grey]Stat[/]"))
             .AddColumn(new TableColumn("[grey]Base[/]").RightAligned())
-            .AddColumn(new TableColumn("[grey]Min[/]").RightAligned())
-            .AddColumn(new TableColumn("[grey]Max[/]").RightAligned());
+            .AddColumn(new TableColumn("[grey]Range[/]").RightAligned());
 
         foreach (var stat in StatOrder)
         {
@@ -44,12 +43,11 @@ public static class PokemonRenderer
             table.AddRow(
                 stat.DisplayName(),
                 range.Base.ToString(),
-                range.Min.ToString(),
-                range.Max.ToString());
+                FormatRange(range));
         }
 
         var bst = pokemon.BaseStats.Total;
-        table.AddRow("[grey]BST[/]", $"[grey]{bst}[/]", "", "");
+        table.AddRow("[grey]BST[/]", $"[grey]{bst}[/]", "");
 
         AnsiConsole.Write(table);
 
@@ -76,6 +74,17 @@ public static class PokemonRenderer
         else if (usage is null)
             AnsiConsole.WriteLine();
     }
+
+    /// <summary>
+    /// Formats a stat range as "min-softMin-softMax-max", with the true min/max
+    /// (0 pts + hindering / max pts + boosting) bolded to stand out from the
+    /// "soft" values (0 pts / max pts with a neutral nature for that stat).
+    /// </summary>
+    private static string FormatRange(StatRange range) =>
+        FormatRange(range.Min, range.SoftMin, range.SoftMax, range.Max);
+
+    private static string FormatRange(int min, int softMin, int softMax, int max) =>
+        $"[bold cyan]{min}[/]-{softMin}-{softMax}-[bold cyan]{max}[/]";
 
     private static void RenderUsage(PokemonUsageStats usage, bool detailed)
     {
@@ -108,10 +117,10 @@ public static class PokemonRenderer
     }
 
     /// <summary>
-    /// Renders the two-tier (uninvested / max invest) stat comparison list.
-    /// Modifiers are applied only to the queried Pokemon's stat; team entries show their own stats.
+    /// Renders the stat lookup: the queried Pokemon's min-softMin-softMax-max range at the
+    /// top, followed by a single list of the active team's stats for the same category.
     /// If the queried Pokemon is on the active team with a build, <paramref name="teamBuildStat"/>
-    /// is shown as a highlighted "Your build" line above the tier lists.
+    /// is shown as a highlighted "Your build" line above the team list.
     /// </summary>
     public static void RenderStatTier(
         Pokemon pokemon, StatName stat,
@@ -123,10 +132,10 @@ public static class PokemonRenderer
         modifiers ??= StatModifierSet.None;
         var range = StatCalculator.GetRange(pokemon.BaseStats.Get(stat), stat);
 
-        // Header: name, stat name, base/min/max
-        var header = $"[bold]{Markup.Escape(pokemon.Name)}[/] — {stat.DisplayName()}  " +
-                     $"[grey]Base {range.Base}   Min {range.Min}   Max {range.Max}[/]";
-        AnsiConsole.MarkupLine(header);
+        // Header: name, stat name, base, and the four-value range
+        AnsiConsole.MarkupLine(
+            $"[bold]{Markup.Escape(pokemon.Name)}[/] — {stat.DisplayName()}  " +
+            $"[grey]Base {range.Base}[/]   {FormatRange(range)}");
 
         // Team build line (when the queried Pokemon is on the active team)
         if (teamBuildStat.HasValue)
@@ -139,29 +148,28 @@ public static class PokemonRenderer
         if (modifiers.HasAny(stat, pokemon))
         {
             var mult = modifiers.TotalMultiplier(stat, pokemon);
+            var modRange = FormatRange(
+                modifiers.Apply(range.Min, stat, pokemon),
+                modifiers.Apply(range.SoftMin, stat, pokemon),
+                modifiers.Apply(range.SoftMax, stat, pokemon),
+                modifiers.Apply(range.Max, stat, pokemon));
             AnsiConsole.MarkupLine(
                 $"  [grey]{Markup.Escape(modifiers.Describe(stat, pokemon))} (×{mult:F2})[/]   " +
-                $"[grey]→  Min [bold]{modifiers.Apply(range.Min, stat, pokemon)}[/]   Max [bold]{modifiers.Apply(range.Max, stat, pokemon)}[/][/]");
+                $"[grey]→[/]  {modRange}");
         }
 
         AnsiConsole.WriteLine();
 
-        int queriedMin = modifiers.Apply(range.Min, stat, pokemon);
-        int queriedMax = modifiers.Apply(range.Max, stat, pokemon);
-
-        var modLabel = modifiers.HasAny(stat, pokemon) ? $" + {modifiers.Describe(stat, pokemon)}" : string.Empty;
-
-        var minRows = BuildTierRows(pokemon.Name, queriedMin, teamEntries, useMax: false)
-            .OrderByDescending(r => r.Stat).ToList();
-        AnsiConsole.MarkupLine($"[grey]── Uninvested{Markup.Escape(modLabel)}[/]");
-        RenderTierTable(minRows);
-        AnsiConsole.WriteLine();
-
-        var maxRows = BuildTierRows(pokemon.Name, queriedMax, teamEntries, useMax: true)
-            .OrderByDescending(r => r.Stat).ToList();
-        AnsiConsole.MarkupLine($"[grey]── Max invest{Markup.Escape(modLabel)}[/]");
-        RenderTierTable(maxRows);
-        AnsiConsole.WriteLine();
+        if (teamEntries.Count > 0)
+        {
+            AnsiConsole.MarkupLine("[grey]── Your team[/]");
+            var rows = teamEntries
+                .Select(e => new TierRow(e.Name, e.Actual ?? e.Max, IsQueried: false, IsEstimated: !e.Actual.HasValue))
+                .OrderByDescending(r => r.Stat)
+                .ToList();
+            RenderTierTable(rows);
+            AnsiConsole.WriteLine();
+        }
     }
 
     public static void RenderStatBuild(
@@ -178,7 +186,7 @@ public static class PokemonRenderer
 
         AnsiConsole.MarkupLine(
             $"[bold]{Markup.Escape(pokemon.Name)}[/] — {stat.DisplayName()}  " +
-            $"[grey]Base {range.Base}   Min {range.Min}   Max {range.Max}[/]");
+            $"[grey]Base {range.Base}[/]   {FormatRange(range)}");
 
         AnsiConsole.MarkupLine($"  [grey]{Markup.Escape(buildLabel)}[/] → [bold]{unmodifiedStat}[/]");
 
@@ -194,7 +202,7 @@ public static class PokemonRenderer
         var modLabel = modifiers.HasAny(stat, pokemon) ? $" + {modifiers.Describe(stat, pokemon)}" : string.Empty;
         AnsiConsole.MarkupLine($"[grey]── Build comparison{Markup.Escape(modLabel)}[/]");
 
-        var rows = BuildTierRows(pokemon.Name, queriedStat, teamEntries, useMax: false)
+        var rows = BuildTierRows(pokemon.Name, queriedStat, teamEntries)
             .OrderByDescending(r => r.Stat).ToList();
         RenderTierTable(rows);
         AnsiConsole.WriteLine();
@@ -203,8 +211,7 @@ public static class PokemonRenderer
     private record TierRow(string Name, int Stat, bool IsQueried, bool IsEstimated);
 
     private static List<TierRow> BuildTierRows(
-        string queriedName, int queriedStat,
-        IReadOnlyList<StatTierEntry> teamEntries, bool useMax)
+        string queriedName, int queriedStat, IReadOnlyList<StatTierEntry> teamEntries)
     {
         var rows = new List<TierRow>
         {
@@ -214,7 +221,7 @@ public static class PokemonRenderer
         foreach (var entry in teamEntries)
         {
             bool estimated = !entry.Actual.HasValue;
-            int stat = entry.Actual ?? (useMax ? entry.Max : entry.Min);
+            int stat = entry.Actual ?? entry.Min;
             rows.Add(new TierRow(entry.Name, stat, IsQueried: false, IsEstimated: estimated));
         }
 
