@@ -1,6 +1,8 @@
 # Pokemon Champions Utils (pcu)
 
-A cross-platform CLI tool for competitive Pokemon Champions players. Look up Pokemon stats, check speed tiers, run damage calculations, build and validate teams, and access live battle usage statistics — all from your terminal.
+A cross-platform CLI tool for competitive Pokemon Champions players. Look up Pokemon stats, check speed tiers, run damage calculations, build and validate teams, and access live battle usage statistics—all from your terminal.
+
+**This project is still in development.** There are still remaining bugs and missing features, especially for damage calculations.
 
 ---
 
