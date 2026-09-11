@@ -41,6 +41,7 @@ public static class ServiceRegistration
         {
             var registry = new FormatRegistry();
             registry.Register(new RegulationMA());
+            registry.Register(new RegulationMC());
             return registry;
         });
 

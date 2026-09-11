@@ -23,7 +23,7 @@ public class UpdateCommand(StaticDataImporter staticImporter, UsageStatsImporter
         await AnsiConsole.Progress()
             .StartAsync(async ctx =>
             {
-                var task = ctx.AddTask("[green]Updating local data[/]", maxValue: 5);
+                var task = ctx.AddTask("[green]Updating local data[/]", maxValue: 6);
 
                 var progress = new Progress<string>(msg =>
                 {

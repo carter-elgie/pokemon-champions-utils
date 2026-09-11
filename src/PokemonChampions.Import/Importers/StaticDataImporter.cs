@@ -31,7 +31,93 @@ public class StaticDataImporter(AppDbContext db, HttpClient http, ILogger<Static
         progress?.Report("Fetching learnset data...");
         await ImportLearnsetsAsync(ct);
 
+        progress?.Report("Seeding custom Champions content...");
+        await SeedCustomContentAsync(ct);
+
         progress?.Report("Done.");
+    }
+
+    // Custom (non-canonical) Mega Evolutions introduced in Pokemon Champions Reg M-C.
+    // These don't exist in Pokemon Showdown's data, so they're seeded here instead of
+    // coming from the normal import methods above.
+    private static readonly (string ShowdownId, string Name, string BaseFormShowdownId,
+        string? Type1, string? Type2, int Hp, int Atk, int Def, int Spa, int Spd, int Spe, string Ability)[] CustomMegas =
+    [
+        ("salamencemega", "Salamence-Mega", "salamence", "Dragon", "Flying", 95, 145, 130, 120, 90, 120, "aerilate"),
+        ("baxcaliburmega", "Baxcalibur-Mega", "baxcalibur", "Dragon", "Ice", 115, 175, 117, 105, 101, 87, "thermalexchange"),
+        ("golisopodmega", "Golisopod-Mega", "golisopod", "Bug", "Steel", 75, 150, 175, 70, 120, 40, "toughclaws"),
+        ("garchompmegaz", "Garchomp-Mega-Z", "garchomp", "Dragon", null, 108, 130, 85, 141, 85, 151, "levitate"),
+        ("lucariomegaz", "Lucario-Mega-Z", "lucario", "Fighting", "Steel", 70, 100, 70, 164, 70, 151, "auraguard"),
+        ("absolmegaz", "Absol-Mega-Z", "absol", "Dark", "Ghost", 65, 154, 60, 75, 60, 151, "sharpness"),
+    ];
+
+    private static readonly (string ShowdownId, string Name, string MegaStoneFor)[] CustomMegaStones =
+    [
+        ("salamencite", "Salamencite", "salamence"),
+        ("baxcalibrite", "Baxcalibrite", "baxcalibur"),
+        ("golisopite", "Golisopite", "golisopod"),
+        ("garchompitez", "Garchompite Z", "garchomp"),
+        ("lucarionitez", "Lucarionite Z", "lucario"),
+        ("absolitez", "Absolite Z", "absol"),
+    ];
+
+    private async Task SeedCustomContentAsync(CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+
+        // "Aura Guard" (Mega Lucario Z) is a custom ability with no Showdown equivalent.
+        var auraGuard = await db.Abilities.FirstOrDefaultAsync(a => a.ShowdownId == "auraguard", ct)
+            ?? new AbilityEntity { ShowdownId = "auraguard" };
+        auraGuard.NormalizedId = "auraguard".ToNormalizedId();
+        auraGuard.Name = "Aura Guard";
+        auraGuard.ShortDesc = "Damage taken from contact moves is reduced by 50%.";
+        auraGuard.UpdatedAt = now;
+        if (auraGuard.Id == 0)
+            db.Abilities.Add(auraGuard);
+
+        foreach (var mega in CustomMegas)
+        {
+            var entity = await db.Pokemon.FirstOrDefaultAsync(p => p.ShowdownId == mega.ShowdownId, ct)
+                ?? new PokemonEntity { ShowdownId = mega.ShowdownId };
+
+            entity.NormalizedId = mega.ShowdownId.ToNormalizedId();
+            entity.Name = mega.Name;
+            entity.BaseHp = mega.Hp;
+            entity.BaseAtk = mega.Atk;
+            entity.BaseDef = mega.Def;
+            entity.BaseSpa = mega.Spa;
+            entity.BaseSpd = mega.Spd;
+            entity.BaseSpe = mega.Spe;
+            entity.Type1 = mega.Type1;
+            entity.Type2 = mega.Type2;
+            entity.Ability0 = mega.Ability;
+            entity.IsMega = true;
+            entity.BaseFormShowdownId = mega.BaseFormShowdownId;
+            entity.CanEvolve = false;
+            entity.IsCurrentGenStandard = true;
+            entity.UpdatedAt = now;
+
+            if (entity.Id == 0)
+                db.Pokemon.Add(entity);
+        }
+
+        foreach (var stone in CustomMegaStones)
+        {
+            var entity = await db.Items.FirstOrDefaultAsync(i => i.ShowdownId == stone.ShowdownId, ct)
+                ?? new ItemEntity { ShowdownId = stone.ShowdownId };
+
+            entity.NormalizedId = stone.ShowdownId.ToNormalizedId();
+            entity.Name = stone.Name;
+            entity.IsMegaStone = true;
+            entity.MegaStoneFor = stone.MegaStoneFor;
+            entity.UpdatedAt = now;
+
+            if (entity.Id == 0)
+                db.Items.Add(entity);
+        }
+
+        await db.SaveChangesAsync(ct);
+        logger.LogInformation("Seeded {Count} custom Champions mega forms.", CustomMegas.Length);
     }
 
     private async Task ImportPokemonAsync(CancellationToken ct)
